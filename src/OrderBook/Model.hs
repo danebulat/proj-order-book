@@ -37,22 +37,19 @@ data Order = Order
    -- ^ public key hash of trader submitting this order
     , oAmount :: !Value
    -- ^ amount of the token or usd to trade
+    , oSide   :: OrderSide
+   -- ^ whether it's a buy or sell market order
     } deriving (Eq, Show)
 
 data OrderType  
     = Market 
-        { moDirection :: OrderDirection 
-       -- ^ whether it's a buy or sell market order
-        }
     | Limit  
         { otlMaxPrice :: Price
        -- ^ maximum price (the limit) to execute this order
-        , otlDir      :: OrderDirection 
-       -- ^ whether it's a buy limit or sell limit order
         }
     deriving (Eq, Show)
 
-data OrderDirection
+data OrderSide 
     = Buy 
    -- ^ where max price is the highest price trader is willing to buy asset 
     | Sell
@@ -103,16 +100,16 @@ mkEmptyOrderBook :: OrderBook
 mkEmptyOrderBook = def
 
 -- Create a market order
-mkMarketOrder :: String -> Value -> OrderDirection -> Order
-mkMarketOrder pkh val dir = Order (Market dir) pkh val
+mkMarketOrder :: String -> Value -> OrderSide -> Order
+mkMarketOrder = Order Market 
 
 -- Create a limit order
-mkLimitOrder :: String -> Value -> Price -> OrderDirection -> Order
-mkLimitOrder pkh val price loType = Order (Limit price loType) pkh val
+mkLimitOrder :: String -> Value -> Price -> OrderSide -> Order
+mkLimitOrder pkh val price = Order (Limit price) pkh val
 
 -- Getting information
 
--- Return the spread if the order book as a bid and ask price
+-- Return the spread of the order book as a bid and ask price
 getSpread :: OrderBook -> Maybe Value 
 getSpread ob = do  
     a' <- obCurAsk ob
@@ -137,8 +134,13 @@ getTotalOrders :: OrderBook -> Integer
 getTotalOrders ob = getTotalLimitOrders ob + getTotalMarketOrders ob
 
 isMarketOrder :: Order -> Bool
-isMarketOrder (Order (Market _) _ _) = True 
+isMarketOrder (Order Market _ _ _) = True 
 isMarketOrder _ = False
+
+-- Check if an order is a Buy
+isBuyLimitOrder :: Order -> Bool 
+isBuyLimitOrder (Order (Limit _) _ _ Buy) = True
+isBuyLimitOrder _ = False
 
 -- Manipulating
 
@@ -162,6 +164,90 @@ addMarketOrder o ob
   | otherwise = ob
 
 -- ----------------------------------------------------------------------   
+-- Matching Engine Related
+-- ----------------------------------------------------------------------   
+
+-- Key will either by curBid or curAsk
+getOrdersAtKey :: Value -> Map Value [Order] -> [Order]
+getOrdersAtKey k m = m Map.! k
+
+-- Remove orders from order book that will be consumed for a buy order, 
+-- return updated orderbook
+takeOrders :: OrderSide                   -- buy or sell
+           -> Value                       -- key (initial value will be curBid or curAsk)
+           -> Value                       -- target value to trade
+           -> OrderBook                   -- order book to take orders from
+           -> (Value, [Order])            -- accumulated value and orders to consume
+           -> (Value, [Order], OrderBook) -- value + orders to consume, and updated order book
+takeOrders side k tgt ob (curVal, os) = 
+  let incFn       = if side == Buy then (+) else (-)  -- move key up or down the order book
+      ordersAtKey = obLimitOrders ob Map.! k          -- orders to fold over
+
+      (curVal', ordersToConsume, updatedOrderBook) = 
+        foldr (\o (v', os', ob') -> 
+          if v' >= tgt 
+            -- target met, return value, orders to consume, and updated order book
+            then (v', os', ob') 
+            else 
+              -- remove next order from order book
+              let m' = Map.adjust (drop 1) k (obLimitOrders ob') 
+              in (v' + oAmount o, os++[o], (ob' { obLimitOrders = m' })))
+          (curVal, os, ob) ordersAtKey
+      -- --------------------
+      -- TODO: Handle lefover 
+      -- --------------------
+  in if curVal' > tgt 
+        then (curVal', ordersToConsume, updatedOrderBook)
+        else 
+          let nextKey = k `incFn` obIncrement ob 
+          in takeOrders side nextKey tgt updatedOrderBook (curVal', ordersToConsume)
+
+-- Fill a market order and update the order book 
+executeMarketOrder :: Order -> OrderBook -> OrderBook
+executeMarketOrder o ob
+  | not (isMarketOrderFillable o ob) = ob 
+  | otherwise = 
+    let Just startKey = if oSide o == Buy then obCurAsk ob else obCurBid ob
+        ( valToConsume
+          , ordersToConsume   -- use to build tx
+          , updatedOrderBook  -- new state of order book
+          ) = takeOrders (oSide o) startKey (oAmount o) ob (0, [])
+    in 
+      -- At this point, we can construct the transaction that will 
+      -- send value to the market order pkh and limit order pkhs.
+      updatedOrderBook
+
+-- Check if a market order is fillable
+isMarketOrderFillable :: Order -> OrderBook -> Bool
+isMarketOrderFillable o ob = getTotalLiquidityOnSide side ob >= oAmount o
+  where
+    -- Check liquidity on the OPPOSITE side of the market
+    side = if oSide o == Buy then Sell else Buy
+
+-- Return total liquidity on the buy or sell side of the market
+getTotalLiquidityOnSide :: OrderSide -> OrderBook -> Value
+getTotalLiquidityOnSide side ob
+  | side == Buy = 
+      let filteredOrders = filter isBuyLimitOrder flattenedOrders
+      in foldVal filteredOrders
+  | otherwise = 
+      let filteredOrders = filter (not . isBuyLimitOrder) flattenedOrders
+      in foldVal filteredOrders
+  where 
+    flattenedOrders = concat $ snd <$> Map.toList (obLimitOrders ob)
+    foldVal os = foldr (\o acc -> acc + oAmount o) 0 os
+
+-- Utilities to get a flattened order list of an order book
+getFlattenedOrders :: OrderBook -> [Order]
+getFlattenedOrders ob = concat $ snd <$> Map.toList (obLimitOrders ob)
+
+getFlattenedBuyOrders :: OrderBook -> [Order]
+getFlattenedBuyOrders ob = filter isBuyLimitOrder $ getFlattenedOrders ob
+
+getFlattenedSellOrders :: OrderBook -> [Order]
+getFlattenedSellOrders ob = filter (not . isBuyLimitOrder) $ getFlattenedOrders ob
+
+-- ----------------------------------------------------------------------   
 -- Main
 -- ----------------------------------------------------------------------   
 
@@ -172,8 +258,10 @@ main = do
       -- A buy limit order to sell $20 of asset at $1.10
       l2 = mkLimitOrder "pkh2" 20_000 1_10 Sell
       -- A market order to buy $5 of asset
-      m1 = mkMarketOrder "pk1" 5_00 Buy
+      m1 = mkMarketOrder "pkh1" 5_00 Buy
       -- Add the limit and market orders to an empty order book
       ob = addMarketOrder m1 $ addLimitOrders [l1, l2] mkEmptyOrderBook
-   
+
   print ob
+  print $ isMarketOrderFillable m1 ob
+
