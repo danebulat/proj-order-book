@@ -90,35 +90,8 @@ showPriceLevel price os =
   show price <> ": " <> show (length os) <> " orders.\n"
 
 -- ----------------------------------------------------------------------   
--- Functions
+-- Utils
 -- ----------------------------------------------------------------------   
-
--- Instantiation
-
--- Create an empty order book
-mkEmptyOrderBook :: OrderBook 
-mkEmptyOrderBook = def
-
--- Create a market order
-mkMarketOrder :: String -> Value -> OrderSide -> Order
-mkMarketOrder = Order Market 
-
--- Create a limit order
-mkLimitOrder :: String -> Value -> Price -> OrderSide -> Order
-mkLimitOrder pkh val price = Order (Limit price) pkh val
-
--- Getting information
-
--- Return the spread of the order book as a bid and ask price
-getSpread :: OrderBook -> Maybe Value 
-getSpread ob = do  
-    a' <- obCurAsk ob
-    b' <- obCurBid ob
-    return (a' - b')
-
--- Return the number of price levels with orders in the order book
-getBookDepth :: OrderBook -> Integer 
-getBookDepth ob = fromIntegral $ Map.size (obLimitOrders ob)
 
 -- Return the total number of limit orders in an order book
 getTotalLimitOrders :: OrderBook -> Integer
@@ -133,133 +106,6 @@ getTotalMarketOrders OrderBook{ obMarketOrders = os } = fromIntegral $ length os
 getTotalOrders :: OrderBook -> Integer
 getTotalOrders ob = getTotalLimitOrders ob + getTotalMarketOrders ob
 
-isMarketOrder :: Order -> Bool
-isMarketOrder (Order Market _ _ _) = True 
-isMarketOrder _ = False
-
--- Check if an order is a Buy
-isBuyLimitOrder :: Order -> Bool 
-isBuyLimitOrder (Order (Limit _) _ _ Buy) = True
-isBuyLimitOrder _ = False
-
--- Manipulating
-
--- Add an order to an order book
-addLimitOrder :: Order -> OrderBook -> OrderBook 
-addLimitOrder o ob 
-  | isMarketOrder o = ob 
-  | otherwise = 
-      let atPrice = otlMaxPrice (oType o)
-          orders  = Map.insertWith (flip (++)) atPrice [o] (obLimitOrders ob) 
-      in ob { obLimitOrders = orders }
-
--- Add multiple orders to an order book
-addLimitOrders :: [Order] -> OrderBook -> OrderBook
-addLimitOrders os ob = foldr addLimitOrder ob os 
-
--- Add market order to an order book
-addMarketOrder :: Order -> OrderBook -> OrderBook 
-addMarketOrder o ob
-  | isMarketOrder o = let os = obMarketOrders ob in ob { obMarketOrders = o:os }
-  | otherwise = ob
-
--- ----------------------------------------------------------------------   
--- Matching Engine Related
--- ----------------------------------------------------------------------   
-
--- Key will either by curBid or curAsk
-getOrdersAtKey :: Value -> Map Value [Order] -> [Order]
-getOrdersAtKey k m = m Map.! k
-
--- Remove orders from order book that will be consumed for an order, 
--- Return the updated orderbook and orders taken from it.
-takeOrders 
-    :: OrderSide                                -- buy or sell
-    -> Value                                    -- key (initial value will be curBid or curAsk)
-    -> Value                                    -- target value to trade
-    -> OrderBook                                -- order book to take orders from
-    -> (Value, [Order])                         -- accumulated value and orders to consume
-    -> (Value, [Order], OrderBook)              -- value + orders to consume, and updated order book
-takeOrders side k tgt ob (curVal, os) = 
-  let incFn = if side == Buy then (+) else (-)  -- move key up or down the order book
-      ordersAtKey = obLimitOrders ob Map.! k    -- orders to fold over
-
-      (curVal', ordersToConsume, updatedOrderBook) = 
-        foldr (\o (v', os', ob') -> 
-          if v' >= tgt 
-            then
-              -- target already met
-              (v', os', ob')
-            else 
-              -- check target met after consuming this order
-              if v' + oAmount o >= tgt 
-                then 
-                  -- replace this order with a new one for the unfilled leftover
-                  let leftover = (v' + oAmount o) - tgt 
-                  in 
-                    if leftover > 0 
-                      then
-                        -- keep order and set amount to leftover value
-                        let orderToInsert = o{ oAmount = leftover }
-                            m' =  Map.adjust (\os -> orderToInsert : drop 1 os) k (obLimitOrders ob')
-                        in (v' + oAmount o, os++[o], (ob'{ obLimitOrders = m' }))
-                      else 
-                        -- no leftover, remove entire order from order book
-                        let m' = Map.adjust (drop 1) k (obLimitOrders ob')
-                        in (v' + oAmount o, os++[o], ob'{ obLimitOrders = m' })
-                else 
-                  -- drop this order from the order book
-                  let m' = Map.adjust (drop 1) k (obLimitOrders ob')
-                  in (v' + oAmount o, os++[o], ob'{ obLimitOrders = m' })) 
-          (curVal, os, ob) ordersAtKey
-  in 
-    if curVal' > tgt 
-      then 
-        (curVal', ordersToConsume, updatedOrderBook)
-      else 
-        -- Recurse
-        let nextKey = k `incFn` obIncrement ob 
-            updatedOrderBook' = 
-              if side == Buy 
-                then updatedOrderBook{ obCurAsk = Just nextKey }
-                else updatedOrderBook{ obCurBid = Just nextKey }
-        in takeOrders side nextKey tgt updatedOrderBook' (curVal', ordersToConsume)
-
--- Fill a market order and update the order book 
-executeMarketOrder :: Order -> OrderBook -> OrderBook
-executeMarketOrder o ob
-  | not (isMarketOrderFillable o ob) = ob 
-  | otherwise = 
-    let Just startKey = if oSide o == Buy then obCurAsk ob else obCurBid ob
-        ( valToConsume
-          , ordersToConsume   -- use to build tx
-          , updatedOrderBook  -- new state of order book
-          ) = takeOrders (oSide o) startKey (oAmount o) ob (0, [])
-    in 
-      -- At this point, we can construct the transaction that will 
-      -- send value to the wallets involved in the tx.
-      updatedOrderBook
-
--- Check if a market order is fillable
-isMarketOrderFillable :: Order -> OrderBook -> Bool
-isMarketOrderFillable o ob = getTotalLiquidityOnSide side ob >= oAmount o
-  where
-    -- Check liquidity on the OPPOSITE side of the market
-    side = if oSide o == Buy then Sell else Buy
-
--- Return total liquidity on the buy or sell side of the market
-getTotalLiquidityOnSide :: OrderSide -> OrderBook -> Value
-getTotalLiquidityOnSide side ob
-  | side == Buy = 
-      let filteredOrders = filter isBuyLimitOrder flattenedOrders
-      in foldVal filteredOrders
-  | otherwise = 
-      let filteredOrders = filter (not . isBuyLimitOrder) flattenedOrders
-      in foldVal filteredOrders
-  where 
-    flattenedOrders = concat $ snd <$> Map.toList (obLimitOrders ob)
-    foldVal os = foldr (\o acc -> acc + oAmount o) 0 os
-
 -- Utilities to get a flattened order list of an order book
 getFlattenedOrders :: OrderBook -> [Order]
 getFlattenedOrders ob = concat $ snd <$> Map.toList (obLimitOrders ob)
@@ -270,21 +116,38 @@ getFlattenedBuyOrders ob = filter isBuyLimitOrder $ getFlattenedOrders ob
 getFlattenedSellOrders :: OrderBook -> [Order]
 getFlattenedSellOrders ob = filter (not . isBuyLimitOrder) $ getFlattenedOrders ob
 
+-- Return the spread of the order book as a bid and ask price
+getSpread :: OrderBook -> Maybe Value 
+getSpread ob = do  
+    a' <- obCurAsk ob
+    b' <- obCurBid ob
+    return (a' - b')
+
+-- Return the number of price levels with orders in the order book
+getBookDepth :: OrderBook -> Integer 
+getBookDepth ob = fromIntegral $ Map.size (obLimitOrders ob)
+
+isMarketOrder :: Order -> Bool
+isMarketOrder (Order Market _ _ _) = True 
+isMarketOrder _ = False
+
+-- Check if an order is a Buy
+isBuyLimitOrder :: Order -> Bool 
+isBuyLimitOrder (Order (Limit _) _ _ Buy) = True
+isBuyLimitOrder _ = False
+
 -- ----------------------------------------------------------------------   
--- Main
+-- Instantiation
 -- ----------------------------------------------------------------------   
 
-main :: IO ()
-main = do 
-  let -- A buy limit order to buy $10 of asset at $1
-      l1 = mkLimitOrder "pkh1" 10_000 1_00 Buy 
-      -- A buy limit order to sell $20 of asset at $1.10
-      l2 = mkLimitOrder "pkh2" 20_000 1_10 Sell
-      -- A market order to buy $5 of asset
-      m1 = mkMarketOrder "pkh1" 5_00 Buy
-      -- Add the limit and market orders to an empty order book
-      ob = addMarketOrder m1 $ addLimitOrders [l1, l2] mkEmptyOrderBook
+-- Create an empty order book
+mkEmptyOrderBook :: OrderBook 
+mkEmptyOrderBook = def
 
-  print ob
-  print $ isMarketOrderFillable m1 ob
+-- Create a market order
+mkMarketOrder :: String -> Value -> OrderSide -> Order
+mkMarketOrder = Order Market 
 
+-- Create a limit order
+mkLimitOrder :: String -> Value -> Price -> OrderSide -> Order
+mkLimitOrder pkh val price = Order (Limit price) pkh val
