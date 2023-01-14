@@ -43,7 +43,7 @@ main = do
 tests :: TestTree
 tests = testGroup "Tests" 
           [ testEmptyOrderBook
-          , testAddingLimitOrders
+          , testAddingLimitOrders1
           ]
 
 -- ---------------------------------------------------------------------- 
@@ -70,8 +70,8 @@ testEmptyOrderBook = testCaseSteps "Test empty order book" $ \step -> do
   step "Assert: obIncrement > 0"
   assertBool "Wrong obIncrement" $ obIncrement ob > 0
 
-testAddingLimitOrders :: TestTree
-testAddingLimitOrders = testCaseSteps "Test adding a limit order" $ \step -> do
+testAddingLimitOrders1 :: TestTree
+testAddingLimitOrders1 = testCaseSteps "Test adding a limit order" $ \step -> do
   step "Action: Instantiate empty order book"
   let ob1 = mkEmptyOrderBook 
 
@@ -99,6 +99,11 @@ testAddingLimitOrders = testCaseSteps "Test adding a limit order" $ \step -> do
   step "Assert: Order book curAsk is 110"
   assertBool "Wrond obCurAsk" $ obCurAsk ob3 == Just 110
  
+-- TODO: Add 5 limit orders and check the bid/ask and order book
+
+-- TODO: After executing a market order, either the bid or ask is updated,
+--       not both.
+
 -- ---------------------------------------------------------------------- 
 -- Reference
 -- ---------------------------------------------------------------------- 
