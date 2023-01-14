@@ -7,6 +7,7 @@ import Data.Default
 import Data.Map     (Map)
 import Data.Map     qualified as Map
 import Data.Maybe   (isJust, fromJust)
+import Data.Monoid  (Sum(..))
 
 -- ---------------------------------------------------------------------- 
 -- Data types
@@ -16,16 +17,18 @@ type Value = Integer
 type Price = Integer
 
 data OrderBook = OrderBook
-    { obOrders    :: Map Value [Order]
-   -- ^ A list of all orders in the order book
-    , obLastPrice :: !(Maybe Integer)
-   -- ^ The last traded price
-    , obCurBid    :: !(Maybe Integer)
+    { obLimitOrders  :: Map Value [Order]
+   -- ^ A list of all limit orders in the order book
+    , obMarketOrders :: [Order]
+   -- ^ A list of all market orders in the order book
+    , obLastPrice    :: !(Maybe Integer)
+   -- ^ the last traded price
+    , obCurBid       :: !(Maybe Integer)
    -- ^ current bid price, where traders are willing to buy
-    , obCurAsk    :: !(Maybe Integer)
+    , obCurAsk       :: !(Maybe Integer)
    -- ^ current ask price, where traders are willing to sell
-    , obIncrement :: !Value
-    } 
+    , obIncrement    :: !Value
+    } deriving (Eq)
 
 data Order = Order 
     { oType   :: !OrderType
@@ -34,25 +37,27 @@ data Order = Order
    -- ^ public key hash of trader submitting this order
     , oAmount :: !Value
    -- ^ amount of the token or usd to trade
-    } deriving Show
+    } deriving (Eq, Show)
 
 data OrderType  
     = Market 
-  -- ^ market order which will execute immediately
+        { moDirection :: OrderDirection 
+       -- ^ whether it's a buy or sell market order
+        }
     | Limit  
         { otlMaxPrice :: Price
        -- ^ maximum price (the limit) to execute this order
-        , otlDir   :: LimitOrderType 
+        , otlDir      :: OrderDirection 
        -- ^ whether it's a buy limit or sell limit order
         }
-    deriving Show
+    deriving (Eq, Show)
 
-data LimitOrderType 
+data OrderDirection
     = Buy 
    -- ^ where max price is the highest price trader is willing to buy asset 
     | Sell
    -- ^ where max price is the lowest price trader is willing to sell asset
-  deriving Show
+  deriving (Eq, Show)
 
 -- ----------------------------------------------------------------------   
 -- Instances
@@ -60,24 +65,27 @@ data LimitOrderType
 
 instance Default OrderBook where 
   def = OrderBook 
-    { obOrders    = Map.empty
-    , obLastPrice = Nothing 
-    , obCurBid    = Nothing
-    , obCurAsk    = Nothing
-    , obIncrement = 10
+    { obLimitOrders  = Map.empty
+    , obMarketOrders = []
+    , obLastPrice    = Nothing 
+    , obCurBid       = Nothing
+    , obCurAsk       = Nothing
+    , obIncrement    = 10
     }
 
 instance Show OrderBook where 
   show ob = 
-           "Total orders:  " <> show (getTotalOrders ob)
-      <> "\nIncrement:     " <> show (obIncrement ob)
-      <> "\nLast price:    " <> show (obLastPrice ob) 
-      <> "\nBid price:     " <> show (obCurBid ob) 
-      <> "\nAsk price:     " <> show (obCurAsk ob)
+           "Total orders:         " <> show (getTotalOrders ob)
+      <> "\nTotal limit orders:   " <> show (getTotalLimitOrders ob)
+      <> "\nTotal market orders:  " <> show (getTotalMarketOrders ob)
+      <> "\nIncrement:            " <> show (obIncrement ob)
+      <> "\nLast price:           " <> show (obLastPrice ob) 
+      <> "\nBid price:            " <> show (obCurBid ob) 
+      <> "\nAsk price:            " <> show (obCurAsk ob)
       <> "\nOrders:\n" <> levels
     where 
       levels = foldr (\(p', os) acc -> acc <> showPriceLevel p' os) 
-                 mempty (Map.toList (obOrders ob))
+                 mempty (Map.toList (obLimitOrders ob))
 
 -- Render orders at a price level
 showPriceLevel :: Value -> [Order] -> String 
@@ -95,11 +103,11 @@ mkEmptyOrderBook :: OrderBook
 mkEmptyOrderBook = def
 
 -- Create a market order
-mkMarketOrder :: String -> Value -> Order
-mkMarketOrder = Order Market 
+mkMarketOrder :: String -> Value -> OrderDirection -> Order
+mkMarketOrder pkh val dir = Order (Market dir) pkh val
 
 -- Create a limit order
-mkLimitOrder :: String -> Value -> Price -> LimitOrderType -> Order
+mkLimitOrder :: String -> Value -> Price -> OrderDirection -> Order
 mkLimitOrder pkh val price loType = Order (Limit price loType) pkh val
 
 -- Getting information
@@ -113,24 +121,45 @@ getSpread ob = do
 
 -- Return the number of price levels with orders in the order book
 getBookDepth :: OrderBook -> Integer 
-getBookDepth ob = fromIntegral $ Map.size (obOrders ob)
+getBookDepth ob = fromIntegral $ Map.size (obLimitOrders ob)
 
+-- Return the total number of limit orders in an order book
+getTotalLimitOrders :: OrderBook -> Integer
+getTotalLimitOrders OrderBook{ obLimitOrders = os } = getSum $
+  foldr (\(_, os') acc -> acc <> Sum (fromIntegral (length os'))) mempty (Map.toList os)
+
+-- Return total number of market orders in an order book
+getTotalMarketOrders :: OrderBook -> Integer 
+getTotalMarketOrders OrderBook{ obMarketOrders = os } = fromIntegral $ length os
+
+-- Return total number of orders in the order book
 getTotalOrders :: OrderBook -> Integer
-getTotalOrders OrderBook{ obOrders = os } = 
-  foldr (\(_, os') acc -> acc + fromIntegral (length os')) 0 (Map.toList os)
+getTotalOrders ob = getTotalLimitOrders ob + getTotalMarketOrders ob
+
+isMarketOrder :: Order -> Bool
+isMarketOrder (Order (Market _) _ _) = True 
+isMarketOrder _ = False
 
 -- Manipulating
 
 -- Add an order to an order book
 addLimitOrder :: Order -> OrderBook -> OrderBook 
-addLimitOrder o ob = ob { obOrders = orders }
-  where 
-    atPrice = otlMaxPrice (oType o)
-    orders = Map.insertWith (flip (++)) atPrice [o] (obOrders ob) 
+addLimitOrder o ob 
+  | isMarketOrder o = ob 
+  | otherwise = 
+      let atPrice = otlMaxPrice (oType o)
+          orders  = Map.insertWith (flip (++)) atPrice [o] (obLimitOrders ob) 
+      in ob { obLimitOrders = orders }
 
 -- Add multiple orders to an order book
 addLimitOrders :: [Order] -> OrderBook -> OrderBook
 addLimitOrders os ob = foldr addLimitOrder ob os 
+
+-- Add market order to an order book
+addMarketOrder :: Order -> OrderBook -> OrderBook 
+addMarketOrder o ob
+  | isMarketOrder o = let os = obMarketOrders ob in ob { obMarketOrders = o:os }
+  | otherwise = ob
 
 -- ----------------------------------------------------------------------   
 -- Main
@@ -142,7 +171,9 @@ main = do
       l1 = mkLimitOrder "pkh1" 10_000 1_00 Buy 
       -- A buy limit order to sell $20 of asset at $1.10
       l2 = mkLimitOrder "pkh2" 20_000 1_10 Sell
-      -- Add the two limit orders to an empty order book
-      ob = addLimitOrders [l1, l2] mkEmptyOrderBook
-
+      -- A market order to buy $5 of asset
+      m1 = mkMarketOrder "pk1" 5_00 Buy
+      -- Add the limit and market orders to an empty order book
+      ob = addMarketOrder m1 $ addLimitOrders [l1, l2] mkEmptyOrderBook
+   
   print ob
