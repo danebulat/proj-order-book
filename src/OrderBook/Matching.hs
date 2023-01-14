@@ -26,6 +26,7 @@ takeOrders side k tgt ob (curVal, os) =
   let incFn = if side == Buy then (+) else (-)          -- move key up or down the order book
       ordersAtKey = getOrdersAtKey k (obLimitOrders ob) -- orders to fold over
 
+      -- fold orders at this price level to match market order
       (curVal', ordersToConsume, updatedOrderBook) = 
         foldr (\o (v', os', ob') -> 
           if v' >= tgt 
@@ -36,7 +37,7 @@ takeOrders side k tgt ob (curVal, os) =
               -- check target met when consuming this order
               if v' + oAmount o >= tgt 
                 then 
-                  -- replace this order with a new one for the unfilled leftover
+                  -- leftover means an partially filled limit order
                   let leftover = (v' + oAmount o) - tgt 
                   in 
                     if leftover > 0 
@@ -87,15 +88,6 @@ executeMarketOrder o ob
 -- Adding Orders 
 -- ----------------------------------------------------------------------   
 
--- Add an order to an order book
-addLimitOrder :: Order -> OrderBook -> OrderBook 
-addLimitOrder o ob 
-  | isMarketOrder o = ob 
-  | otherwise = 
-      let atPrice = otlMaxPrice (oType o)
-          orders  = Map.insertWith (flip (++)) atPrice [o] (obLimitOrders ob) 
-      in ob { obLimitOrders = orders }
-
 -- Add multiple orders to an order book
 addLimitOrders :: [Order] -> OrderBook -> OrderBook
 addLimitOrders os ob = foldr addLimitOrder ob os 
@@ -105,6 +97,29 @@ addMarketOrder :: Order -> OrderBook -> OrderBook
 addMarketOrder o ob
   | isMarketOrder o = let os = obMarketOrders ob in ob { obMarketOrders = o:os }
   | otherwise = ob
+
+-- Add an order to an order book
+addLimitOrder :: Order -> OrderBook -> OrderBook 
+addLimitOrder o ob 
+  | isMarketOrder o = ob 
+  | otherwise = 
+      let k = otlMaxPrice (oType o)
+          m = Map.insertWith (flip (++)) k [o] (obLimitOrders ob) 
+      in updateBidAsk (ob { obLimitOrders = m }) o
+
+-- Potentially update the bid/ask based on a new limit order
+updateBidAsk :: OrderBook -> Order -> OrderBook
+updateBidAsk ob o
+  | s == Buy  = case obCurBid ob of 
+      Nothing -> ob{ obCurBid = Just p }
+      Just p' -> if p' < p then ob{ obCurBid = Just p } else ob
+
+  | otherwise = case obCurAsk ob of 
+      Nothing -> ob{ obCurAsk = Just p }
+      Just p' -> if p' > p then ob{ obCurAsk = Just p } else ob
+    where 
+      s = oSide o
+      p = otlMaxPrice (oType o)
 
 -- ----------------------------------------------------------------------   
 -- Utilities
