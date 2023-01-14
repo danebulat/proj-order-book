@@ -1,4 +1,5 @@
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE NumericUnderscores  #-}
 
 module OrderBook.Model where
 
@@ -24,7 +25,7 @@ data OrderBook = OrderBook
     , obCurAsk    :: !(Maybe Integer)
    -- ^ current ask price, where traders are willing to sell
     , obIncrement :: !Value
-    } deriving Show
+    } 
 
 data Order = Order 
     { oType   :: !OrderType
@@ -54,7 +55,7 @@ data LimitOrderType
   deriving Show
 
 -- ----------------------------------------------------------------------   
--- Default Instance 
+-- Instances
 -- ----------------------------------------------------------------------   
 
 instance Default OrderBook where 
@@ -65,6 +66,23 @@ instance Default OrderBook where
     , obCurAsk    = Nothing
     , obIncrement = 10
     }
+
+instance Show OrderBook where 
+  show ob = 
+           "Total orders:  " <> show (getTotalOrders ob)
+      <> "\nIncrement:     " <> show (obIncrement ob)
+      <> "\nLast price:    " <> show (obLastPrice ob) 
+      <> "\nBid price:     " <> show (obCurBid ob) 
+      <> "\nAsk price:     " <> show (obCurAsk ob)
+      <> "\nOrders:\n" <> levels
+    where 
+      levels = foldr (\(p', os) acc -> acc <> showPriceLevel p' os) 
+                 mempty (Map.toList (obOrders ob))
+
+-- Render orders at a price level
+showPriceLevel :: Value -> [Order] -> String 
+showPriceLevel price os = 
+  show price <> ": " <> show (length os) <> " orders.\n"
 
 -- ----------------------------------------------------------------------   
 -- Functions
@@ -93,15 +111,38 @@ getSpread ob = do
     b' <- obCurBid ob
     return (a' - b')
 
--- TODO: getBookDepth
---   The number of price levels are available at any particular time 
---   in the book.
+-- Return the number of price levels with orders in the order book
+getBookDepth :: OrderBook -> Integer 
+getBookDepth ob = fromIntegral $ Map.size (obOrders ob)
+
+getTotalOrders :: OrderBook -> Integer
+getTotalOrders OrderBook{ obOrders = os } = 
+  foldr (\(_, os') acc -> acc + fromIntegral (length os')) 0 (Map.toList os)
 
 -- Manipulating
 
 -- Add an order to an order book
-addOrder :: Order -> Value -> OrderBook -> OrderBook 
-addOrder o price ob = ob { obOrders = orders }
+addLimitOrder :: Order -> OrderBook -> OrderBook 
+addLimitOrder o ob = ob { obOrders = orders }
   where 
-    orders = Map.insertWith (flip (++)) price [o] (obOrders ob) 
+    atPrice = otlMaxPrice (oType o)
+    orders = Map.insertWith (flip (++)) atPrice [o] (obOrders ob) 
 
+-- Add multiple orders to an order book
+addLimitOrders :: [Order] -> OrderBook -> OrderBook
+addLimitOrders os ob = foldr addLimitOrder ob os 
+
+-- ----------------------------------------------------------------------   
+-- Main
+-- ----------------------------------------------------------------------   
+
+main :: IO ()
+main = do 
+  let -- A buy limit order to buy $10 of asset at $1
+      l1 = mkLimitOrder "pkh1" 10_000 1_00 Buy 
+      -- A buy limit order to sell $20 of asset at $1.10
+      l2 = mkLimitOrder "pkh2" 20_000 1_10 Sell
+      -- Add the two limit orders to an empty order book
+      ob = addLimitOrders [l1, l2] mkEmptyOrderBook
+
+  print ob
