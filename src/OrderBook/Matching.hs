@@ -5,7 +5,7 @@ module OrderBook.Matching where
 import Data.Default
 import Data.Map        (Map)
 import Data.Map        qualified as Map
-import Data.Maybe      (isJust, fromJust)
+import Data.Maybe      (isJust, fromJust, fromMaybe)
 import Data.Monoid     (Sum(..))
 import OrderBook.Model
 
@@ -50,9 +50,11 @@ updateAsk ob curAsk =
   let m = obLimitOrders ob
   in case m Map.! curAsk of 
     -- Empty price level key also deleted here
-    [] -> case Map.lookupGT curAsk (Map.delete curAsk m) of 
-            Just (nextAsk, _) -> ob { obCurAsk = Just nextAsk }
-            Nothing           -> ob { obCurAsk = Nothing }
+    [] -> case Map.lookupGT curAsk m of 
+            Just (nextAsk, _) -> ob { obLimitOrders = Map.delete curAsk m
+                                    , obCurAsk = Just nextAsk }
+            Nothing           -> ob { obLimitOrders = Map.delete curAsk m
+                                    , obCurAsk = Nothing      }
     _  -> ob
 
 updateBid :: OrderBook -> Value -> OrderBook 
@@ -60,9 +62,11 @@ updateBid ob curBid =
   let m = obLimitOrders ob
   in case m Map.! curBid of 
     -- Empty price level key also deleted here
-    [] -> case Map.lookupLT curBid (Map.delete curBid m) of 
-            Just (nextBid, _) -> ob { obCurBid = Just nextBid }
-            Nothing           -> ob { obCurBid = Nothing }
+    [] -> case Map.lookupLT curBid m of 
+            Just (nextBid, _) -> ob { obLimitOrders = Map.delete curBid m
+                                    , obCurBid = Just nextBid }
+            Nothing           -> ob { obLimitOrders = Map.delete curBid m
+                                    , obCurBid = Nothing      }
     _  -> ob
 
 --
@@ -137,7 +141,7 @@ takeOrdersForSell k targetAmt ob (accAmt, accOs) =
           else 
             let orderVal           = oAmount o 
                 orderAssetAmt      = orderVal `div` k
-                curAmtPlusOrderAmt = v' + orderVal
+                curAmtPlusOrderAmt = v' + orderAssetAmt
                 osAppended         = os' ++ [o]
             in
             -- check target met when consuming this order
@@ -153,7 +157,7 @@ takeOrdersForSell k targetAmt ob (accAmt, accOs) =
                         m' = Map.adjust (\os -> orderToInsert:drop 1 os) k (obLimitOrders ob')
                       in (v'+orderAmtToTake, osAppended, (ob'{ obLimitOrders = m' }))
                     else 
-                      -- no leftover, remove entire order from order book
+                      -- no leftover, remove entire limit order from order book
                       let m' = Map.adjust (drop 1) k (obLimitOrders ob')
                       in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })
               -- target not yet met, take order
@@ -168,7 +172,7 @@ takeOrdersForSell k targetAmt ob (accAmt, accOs) =
         -- orders at this level all consumed, delete key and update bid 
         let newOb   = updateBid updatedOrderBook k 
             nextKey = fromJust (obCurBid newOb)
-         in takeOrdersForSell nextKey targetAmt newOb (accAmt', accOs')
+        in takeOrdersForSell nextKey targetAmt newOb (accAmt', accOs')
   where 
     ordersAtKey = getOrdersAtKey k (obLimitOrders ob)
 

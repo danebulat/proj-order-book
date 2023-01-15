@@ -51,6 +51,7 @@ tests = testGroup "Tests"
 
           , testTakeBuyMarketOrder
           , testExecuteBuyMarketOrder
+          , testTakeSellMarketOrder
           ]
 
 -- ---------------------------------------------------------------------- 
@@ -172,10 +173,6 @@ limitOrdersAtSamePriceLevel =
     length (getFlattenedBuyOrders ob3)              @?= 2
     length (getFlattenedOrders ob3)                 @?= 4
 
--- TODO: 
--- After executing a market order, either the bid or ask is updated,
--- not both.
-
 -- Test takeOrdersForBuy
 testTakeBuyMarketOrder :: TestTree 
 testTakeBuyMarketOrder = 
@@ -186,18 +183,40 @@ testTakeBuyMarketOrder =
         Just curAsk = obCurAsk ob
         (accV, accOs, newOb) = takeOrdersForBuy curAsk 1000 ob (0, []) 
 
-    step "Assert: accV is $10"
+    step "Assert: 1000 consumed value"
     accV @?= 1_000
 
-    step "Assert: length accOs == 1"
+    step "Assert: 1 consumed order"
     length accOs @?= 1
+
+    step "Assert: Empty order book"
+    Map.null (obLimitOrders newOb) @? "Order book not empty"
+
+-- Test takeOrdersForSell
+testTakeSellMarketOrder :: TestTree 
+testTakeSellMarketOrder = 
+  testCaseSteps "Simple SELL market order" $ \step -> do 
+    let -- BUY $10 of Asset at $1.00 (value @10)
+        lb1         = mkLimitOrder "pkh1" 1_000 100 Buy  
+        ob          = addLimitOrder lb1 mkEmptyOrderBook 
+        Just curBid = obCurBid ob
+        (accAmt, accOs, newOb) = takeOrdersForSell curBid 10 ob (0, []) 
+    
+    step "Assert: 10 consumed amount"
+    accAmt @?= 10
+
+    step "Assert: 1 consumed order"
+    length accOs @?= 1
+
+    step "Assert: Empty order book"
+    Map.null (obLimitOrders newOb) @? "Order book not empty" 
 
 testExecuteBuyMarketOrder :: TestTree
 testExecuteBuyMarketOrder = 
   testCaseSteps "Simple execute BUY market order" $ \step -> do
     let -- SELL 10xAsset at $1.00 (value @10)
-        lb1 = mkLimitOrder "pkh1" 10 100 Sell  
-        ob1 = addLimitOrder lb1 mkEmptyOrderBook 
+        ls1 = mkLimitOrder "pkh1" 10 100 Sell  
+        ob1 = addLimitOrder ls1 mkEmptyOrderBook 
     
     let -- BUY $10 of Asset
         mo  = mkMarketOrder "pkh2" 1_000 Buy 
@@ -205,26 +224,6 @@ testExecuteBuyMarketOrder =
 
     step "Assert: Order book empty"
     null (getFlattenedOrders ob2) @? "Order book not empty"
+    
 
--- TODO: If no orders in order book, set bid/ask to Nothing
--- step "Assert: newOb is empty"
--- length (getFlattenedOrders newOb) @?= 0
 
--- ---------------------------------------------------------------------- 
--- Reference
--- ---------------------------------------------------------------------- 
-
-unitTests :: TestTree
-unitTests = testGroup "Unit Tests"
-  [ testCase "List comparison (different length)" $
-      [1, 2, 3] `compare` [1, 2] @?= GT
-  
-  , testCase "List comparison (same length)" $
-      [1, 2, 3] `compare` [1, 2, 2] @?= LT
-
-  , testCase "2+2=4" $
-      2+2 @?= 4
-
-  , testCase "7 is even" $ 
-      assertBool "Oops, 7 is odd" (even 7)
-  ]
