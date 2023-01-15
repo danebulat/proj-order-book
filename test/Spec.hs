@@ -52,6 +52,7 @@ tests = testGroup "Tests"
           , testTakeBuyMarketOrder
           , testExecuteBuyMarketOrder
           , testTakeSellMarketOrder
+          , testExecuteSellMarketOrder
           ]
 
 -- ---------------------------------------------------------------------- 
@@ -225,5 +226,17 @@ testExecuteBuyMarketOrder =
     step "Assert: Order book empty"
     null (getFlattenedOrders ob2) @? "Order book not empty"
     
+testExecuteSellMarketOrder :: TestTree
+testExecuteSellMarketOrder = 
+  testCaseSteps "Simple execute SELL market order" $ \step -> do
+    let -- BUY $10 of Asset at $1.00 (value 10xAsset)
+        lb1 = mkLimitOrder "pkh1" 1_000 100 Buy 
+        ob1 = addLimitOrder lb1 mkEmptyOrderBook 
+    
+    let -- SELL 10xAsset
+        mo  = mkMarketOrder "pkh2" 10 Sell 
+        ob2 = executeMarketOrder mo ob1 
 
+    step "Assert: Order book empty"
+    null (getFlattenedOrders ob2) @? "Order book not empty"
 

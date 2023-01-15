@@ -13,8 +13,8 @@ import OrderBook.Model
 -- Matching Engine Related
 -- ----------------------------------------------------------------------   
 
--- TODO: Call `executeMarketOrder` for each market order in the order 
---       book
+-- TODO: 
+-- Call `executeMarketOrder` for each market order in the order book
 
 -- Fill a market order and update the order book 
 executeMarketOrder :: Order -> OrderBook -> OrderBook
@@ -23,22 +23,27 @@ executeMarketOrder o ob
   | otherwise = case oSide o of 
       -- Handle buy market order
       Buy -> 
-        let Just startKey = if oSide o == Buy then obCurAsk ob else obCurBid ob
-            (valToConsume      -- usd to consume for buyer
+        let Just startKey = obCurAsk ob 
+            (  valToConsume      -- usd to consume for buyer
              , ordersToConsume   -- use to build tx
              , updatedOrderBook  -- new state of order book
              ) = takeOrdersForBuy startKey (oAmount o) ob (0, [])
         in 
           -- At this point, we can construct the transaction that will 
           -- send value to the wallets involved in the tx.
-
-          -- TODO: Clean up order book 
-          -- 1. Remove keys with empty lists
-          -- 2. Set ask/bid to nothing if order book empty
           updatedOrderBook
 
       -- Handle sell market order
-      Sell -> undefined
+      Sell -> 
+        let Just startKey = obCurBid ob 
+            (  amtToConsume
+             , ordersToConsume 
+             , updatedOrderBook
+             ) = takeOrdersForSell startKey (oAmount o) ob (0, [])
+        in 
+          -- At this point, we can construct the transaction that will 
+          -- send value to the wallets involved in the tx.
+          updatedOrderBook
 
 -- ----------------------------------------------------------------------  
 -- Take (drop) orders from order book that will be consumed for 
@@ -69,9 +74,10 @@ updateBid ob curBid =
                                     , obCurBid = Nothing      }
     _  -> ob
 
---
+-- ---------------------------------------------------------------------- 
 -- Construct a BUY market order
---
+-- ---------------------------------------------------------------------- 
+
 takeOrdersForBuy 
     :: Value                            -- key (initial value will be curBid or curAsk)
     -> Value                            -- target VALUE to trade (not target asset amount)
@@ -123,9 +129,10 @@ takeOrdersForBuy k target ob (accV, accOs) =
   where 
     ordersAtKey = getOrdersAtKey k (obLimitOrders ob)
 
---
+-- ---------------------------------------------------------------------- 
 -- Constructing a SELL market order
---
+-- ---------------------------------------------------------------------- 
+
 takeOrdersForSell 
     :: Value                            -- key (initial value will be curBid or curAsk)
     -> Value                            -- target VALUE to trade (not target asset amount)
