@@ -20,69 +20,132 @@ import OrderBook.Model
 executeMarketOrder :: Order -> OrderBook -> OrderBook
 executeMarketOrder o ob
   | not (isMarketOrderFillable o ob) = ob 
-  | otherwise = 
-    let Just startKey = if oSide o == Buy then obCurAsk ob else obCurBid ob
-        ( valToConsume
-          , ordersToConsume   -- use to build tx
-          , updatedOrderBook  -- new state of order book
-          ) = takeOrders (oSide o) startKey (oAmount o) ob (0, [])
-    in 
-      -- At this point, we can construct the transaction that will 
-      -- send value to the wallets involved in the tx.
-      
-      updatedOrderBook
+  | otherwise = case oSide o of 
+      -- Handle buy market order
+      Buy -> 
+        let Just startKey = if oSide o == Buy then obCurAsk ob else obCurBid ob
+            (valToConsume      -- usd to consume for buyer
+             , ordersToConsume   -- use to build tx
+             , updatedOrderBook  -- new state of order book
+             ) = takeOrdersForBuy startKey (oAmount o) ob (0, [])
+        in 
+          -- At this point, we can construct the transaction that will 
+          -- send value to the wallets involved in the tx.
+          updatedOrderBook
 
+      -- Handle sell market order
+      Sell -> undefined
+
+-- ----------------------------------------------------------------------  
 -- Take (drop) orders from order book that will be consumed for 
 -- an order and return the updated orderbook.
-takeOrders 
-    :: OrderSide                        -- buy or sell
-    -> Value                            -- key (initial value will be curBid or curAsk)
-    -> Value                            -- target value to trade
+-- ----------------------------------------------------------------------  
+
+--
+-- Construct a BUY market order
+--
+takeOrdersForBuy 
+    :: Value                            -- key (initial value will be curBid or curAsk)
+    -> Value                            -- target VALUE to trade (not target asset amount)
     -> OrderBook                        -- order book to take orders from
     -> (Value, [Order])                 -- accumulated value and orders to consume
     -> (Value, [Order], OrderBook)      -- value + orders to consume, and updated order book
-takeOrders side k tgt ob (curVal, os) = 
-  let incFn = if side == Buy then (+) else (-)           -- move key up or down the order book
-      ordersAtKey = getOrdersAtKey k (obLimitOrders ob)  -- orders to fold over
-
-      -- fold orders at this price level to match market order
-      (curVal', ordersToConsume, updatedOrderBook) = 
-        foldr (\o (v', os', ob') -> 
-          if v' >= tgt then
-              -- target already met
-              (v', os', ob')
-            else 
-              -- check target met when consuming this order
-              if v' + oAmount o >= tgt then 
-                  -- leftover means an partially filled limit order
-                  let leftover = (v' + oAmount o) - tgt in 
-                    if leftover > 0 then
-                        -- keep order and set amount to leftover value
-                        let orderToInsert = o{ oAmount = leftover }
-                            m' = Map.adjust (\os -> orderToInsert : drop 1 os) k (obLimitOrders ob')
-                        in (v' + oAmount o, os++[o], (ob'{ obLimitOrders = m' }))
-                      else 
-                        -- no leftover, remove entire order from order book
-                        let m' = Map.adjust (drop 1) k (obLimitOrders ob')
-                        in (v' + oAmount o, os++[o], ob'{ obLimitOrders = m' })
-                else 
-                  -- drop this order from the order book
-                  let m' = Map.adjust (drop 1) k (obLimitOrders ob')
-                  in (v' + oAmount o, os++[o], ob'{ obLimitOrders = m' })) 
-          (curVal, os, ob) ordersAtKey
+takeOrdersForBuy k target ob (accV, accOs)
+  | null ordersAtKey = takeOrdersForBuy nextKey target ob (accV, accOs)
+  | otherwise = 
+  -- fold orders at this price level to match the market buy order
+  let 
+    (accV', accOs', updatedOrderBook) = 
+     foldr (\o (v', os', ob') -> 
+        if v' >= target then (v', os', ob')  -- target already met
+          else 
+            let orderAssetAmt      = oAmount o
+                orderVal           = oAmount o * k
+                curValPlusOrderVal = v' + orderVal
+                osAppended         = os' ++ [o]
+            in
+            -- check target met when consuming this order
+            if curValPlusOrderVal >= target then 
+                -- leftover means a partially filled limit order
+                let leftover = curValPlusOrderVal - target in 
+                  if leftover > 0 then
+                      -- keep order and set its amount to leftover value of asset
+                      let 
+                        assetAmtLeft   = orderAssetAmt - (leftover `div` k)
+                        orderToInsert  = o{ oAmount = assetAmtLeft }
+                        orderValToTake = orderVal - leftover
+                        m' = Map.adjust (\os -> orderToInsert:drop 1 os) k (obLimitOrders ob')
+                      in (v'+orderValToTake, osAppended, (ob'{ obLimitOrders = m' }))
+                    else 
+                      -- no leftover, remove entire order from order book
+                      let m' = Map.adjust (drop 1) k (obLimitOrders ob')
+                      in (curValPlusOrderVal, osAppended, ob'{ obLimitOrders = m' })
+              -- target not yet met, take order
+              else 
+                let m' = Map.adjust (drop 1) k (obLimitOrders ob')
+                in (curValPlusOrderVal, osAppended, ob'{ obLimitOrders = m' })) 
+        (accV, accOs, ob) ordersAtKey
   in 
-    if curVal' > tgt 
-      then
-        -- bid/ask updated here (could update it in parent function)
-        (curVal', ordersToConsume, updateBidAsk' updatedOrderBook side)
-      else 
-        -- recurse
-        let nextKey = k `incFn` obIncrement ob 
-            updatedOrderBook' = 
-              if side == Buy 
-                then updatedOrderBook{ obCurAsk = Just nextKey }
-                else updatedOrderBook{ obCurBid = Just nextKey }
-        in takeOrders side nextKey tgt updatedOrderBook' (curVal', ordersToConsume)
+    if accV' > target 
+      then (accV', accOs', updateBidAsk' updatedOrderBook Buy) -- ask updated
+      else let obNewAsk = updatedOrderBook{ obCurAsk = Just nextKey }
+           in takeOrdersForBuy nextKey target obNewAsk (accV', accOs')
+  where 
+    ordersAtKey = getOrdersAtKey k (obLimitOrders ob)
+    nextKey = k + obIncrement ob
+
+--
+-- Constructing a SELL market order
+--
+takeOrdersForSell 
+    :: Value                            -- key (initial value will be curBid or curAsk)
+    -> Value                            -- target VALUE to trade (not target asset amount)
+    -> OrderBook                        -- order book to take orders from
+    -> (Value, [Order])                 -- accumulated value and orders to consume
+    -> (Value, [Order], OrderBook)      -- value + orders to consume, and updated order book
+takeOrdersForSell k targetAmt ob (accAmt, accOs) 
+  | null ordersAtKey = takeOrdersForSell nextKey targetAmt ob (accAmt, accOs)
+  | otherwise = 
+  -- fold orders at this price level to match market sell order
+  let 
+    (accAmt', accOs', updatedOrderBook) = 
+      foldr (\o (v', os', ob') -> 
+        if v' >= targetAmt then (v', os', ob')  -- target already met
+          else 
+            let orderVal           = oAmount o 
+                orderAssetAmt      = orderVal `div` k
+                curAmtPlusOrderAmt = v' + orderVal
+                osAppended         = os' ++ [o]
+            in
+            -- check target met when consuming this order
+            if curAmtPlusOrderAmt >= targetAmt then 
+                -- leftover means a partially filled limit order
+                let leftoverAmt = curAmtPlusOrderAmt - targetAmt in 
+                  if leftoverAmt > 0 then
+                      -- keep order and set its amount to leftover value of asset
+                      let 
+                        assetAmtLeft   = orderAssetAmt - leftoverAmt 
+                        orderToInsert  = o{ oAmount = assetAmtLeft }
+                        orderAmtToTake = orderAssetAmt - leftoverAmt
+                        m' = Map.adjust (\os -> orderToInsert:drop 1 os) k (obLimitOrders ob')
+                      in (v'+orderAmtToTake, osAppended, (ob'{ obLimitOrders = m' }))
+                    else 
+                      -- no leftover, remove entire order from order book
+                      let m' = Map.adjust (drop 1) k (obLimitOrders ob')
+                      in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })
+              -- target not yet met, take order
+              else 
+                let m' = Map.adjust (drop 1) k (obLimitOrders ob')
+                in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })) 
+        (accAmt, accOs, ob) ordersAtKey
+  in 
+    if accAmt' > targetAmt
+      then (accAmt', accOs', updateBidAsk' updatedOrderBook Sell) -- bid updated
+      else let obNewBid = updatedOrderBook{ obCurBid = Just nextKey }
+           in takeOrdersForSell nextKey targetAmt obNewBid (accAmt', accOs') -- recurse
+  where 
+    ordersAtKey = getOrdersAtKey k (obLimitOrders ob)
+    nextKey = k - obIncrement ob
 
 -- ----------------------------------------------------------------------   
 -- Adding Orders 
@@ -143,7 +206,9 @@ updateBidAsk' ob s
 
 -- Key will either by curBid or curAsk
 getOrdersAtKey :: Value -> Map Value [Order] -> [Order]
-getOrdersAtKey k m = m Map.! k
+getOrdersAtKey k m
+  | Map.member k m = m Map.! k
+  | otherwise = []
 
 -- Check if a market order is fillable
 isMarketOrderFillable :: Order -> OrderBook -> Bool
