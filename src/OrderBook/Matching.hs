@@ -165,10 +165,32 @@ addMarketOrder o ob
 addLimitOrder :: Order -> OrderBook -> OrderBook 
 addLimitOrder o ob 
   | isMarketOrder o = ob 
+  | not (isValidLimitOrder o ob) = ob
   | otherwise = 
       let k = otlMaxPrice (oType o)
           m = Map.insertWith (flip (++)) k [o] (obLimitOrders ob) 
       in updateBidAsk (ob { obLimitOrders = m }) o
+
+  -- Rejection criteria:
+  -- 1. Limit price not divisible by order book increment 
+  -- 2. BUY limit price  > current ask price
+  -- 3. SELL limit price < current bid price
+isValidLimitOrder :: Order -> OrderBook -> Bool 
+isValidLimitOrder o ob 
+  | side == Buy = 
+      limitPrice `mod` inc == 0 &&
+      (case obCurAsk ob of 
+        Just p  -> limitPrice < p
+        Nothing -> True)
+  | otherwise = 
+      limitPrice `mod` inc == 0 &&
+      (case obCurBid ob of 
+        Just p  -> limitPrice > p
+        Nothing -> True)
+  where 
+    side = oSide o
+    limitPrice = otlMaxPrice (oType o)
+    inc = obIncrement ob
 
 -- Call after adding a new limit order
 updateBidAsk :: OrderBook -> Order -> OrderBook

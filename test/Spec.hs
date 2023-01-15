@@ -44,6 +44,8 @@ tests :: TestTree
 tests = testGroup "Tests" 
           [ testEmptyOrderBook
           , testAddingLimitOrders1
+          , bidAskSetAfterAddingLimitOrders
+          , addingInvalidLimitOrders
           ]
 
 -- ---------------------------------------------------------------------- 
@@ -99,10 +101,55 @@ testAddingLimitOrders1 = testCaseSteps "Test adding a limit order" $ \step -> do
   step "Assert: Order book curAsk is 110"
   assertBool "Wrond obCurAsk" $ obCurAsk ob3 == Just 110
  
--- TODO: Add 5 limit orders and check the bid/ask and order book
+-- Test: Bid/Ask price is updated after adding a limit order
+bidAskSetAfterAddingLimitOrders :: TestTree
+bidAskSetAfterAddingLimitOrders = 
+  testCaseSteps "Check bid/ask prices after adding limit orders" $ \step -> do 
+    let ob1 = mkEmptyOrderBook
+        lb1 = mkLimitOrder "pkh1" 1_000 90 Buy    -- BUY $10 @ $0.90
+        ls1 = mkLimitOrder "pkh2" 2_000 110 Sell  -- SELL $20 of Asset @ $1.10
+        ob2 = addLimitOrders [lb1, ls1] ob1       -- Add limit orders
 
--- TODO: After executing a market order, either the bid or ask is updated,
---       not both.
+    step "Assert: Bid is set correctly (90)"
+    obCurBid ob2 @?= Just 90
+
+    step "Assert: Ask is set correctly (110)"
+    obCurAsk ob2 @?= Just 110
+
+    let lb2 = mkLimitOrder "pkh3" 5_000 80 Buy    -- BUY $5 of Asset @ $0.80
+        ls2 = mkLimitOrder "pkh4" 5_000 100 Sell  -- SELL $5 of Asset @ $1
+        ob3 = addLimitOrders [lb2, ls2] ob2       -- Add limit orders
+
+    step "Assert: Bid is set correctly (90)"
+    obCurBid ob3 @?= Just 90
+
+    step "Assert: Ask is set correctly (100)"
+    obCurAsk ob3 @?= Just 100
+
+    step "Assert: Order book limit order length (4)"
+    length (obLimitOrders ob3) @?= 4
+
+addingInvalidLimitOrders :: TestTree 
+addingInvalidLimitOrders = 
+  testCaseSteps "Check adding invalid limit orders" $ \step -> do
+    let ob1  = mkEmptyOrderBook
+        lb1 = mkLimitOrder "pkh1" 1_000 80 Buy
+        ls1 = mkLimitOrder "pkh2" 1_000 120 Sell
+        ob2 = addLimitOrders [lb1, ls1] ob1
+
+    obCurBid ob2 @?= Just 80
+    obCurAsk ob2 @?= Just 120 
+
+    let lb2 = mkLimitOrder "pkh3" 1_000 120 Buy  -- invalid
+        ls2 = mkLimitOrder "pkh3" 1_000 70  Sell -- invalid
+        ob3 = addLimitOrders [lb2, ls2] ob2
+
+    step "Assert: Order book unchanged (invalid orders rejected)"
+    ob3 @?= ob2
+
+-- TODO: 
+-- After executing a market order, either the bid or ask is updated,
+-- not both.
 
 -- ---------------------------------------------------------------------- 
 -- Reference
