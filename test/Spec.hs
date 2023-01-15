@@ -43,9 +43,14 @@ main = do
 tests :: TestTree
 tests = testGroup "Tests" 
           [ testEmptyOrderBook
-          , testAddingLimitOrders1
+          , testAddingLimitOrders
+
           , bidAskSetAfterAddingLimitOrders
           , addingInvalidLimitOrders
+          , limitOrdersAtSamePriceLevel
+
+          , testTakeBuyMarketOrder
+          , testExecuteBuyMarketOrder
           ]
 
 -- ---------------------------------------------------------------------- 
@@ -58,48 +63,45 @@ testEmptyOrderBook = testCaseSteps "Test empty order book" $ \step -> do
   let ob = mkEmptyOrderBook
 
   step "Assert: obLimitOrders is empty"
-  assertBool "Wrong obLimitOrders" $ Map.size (obLimitOrders ob) == 0
+  Map.size (obLimitOrders ob) @?= 0
+  
   step "Assert: obMarketOrders is empty"
-  assertBool "Wrong obMarketOrders" $ null (obMarketOrders ob)
+  null (obMarketOrders ob) @? "Wrong obMarketOrders"
 
   step "Assert: obLastPrice is Nothing"
-  assertBool "Wrong obLastPrice" $ isNothing (obLastPrice ob)
+  isNothing (obLastPrice ob) @? "Wrong obLastPrice"
+
   step "Assert: obCurBid is Nothing"
-  assertBool "Wrong obCurBid" $ isNothing (obCurBid ob)
+  isNothing (obCurBid ob) @? "Wrong obCurBid"
+
   step "Assert: obCurAsk is Nothing"
-  assertBool "Wrong obCurAsk" $ isNothing (obCurAsk ob)
+  isNothing (obCurAsk ob) @? "Wrong obCurAsk"
 
   step "Assert: obIncrement > 0"
-  assertBool "Wrong obIncrement" $ obIncrement ob > 0
+  obIncrement ob > 0 @? "Wrong obIncrement"
 
-testAddingLimitOrders1 :: TestTree
-testAddingLimitOrders1 = testCaseSteps "Test adding a limit order" $ \step -> do
-  step "Action: Instantiate empty order book"
+testAddingLimitOrders :: TestTree
+testAddingLimitOrders = testCaseSteps "Test adding a limit order" $ \step -> do
   let ob1 = mkEmptyOrderBook 
-
-  step "Action: Make limit order l1 (Buy [$10 /Asset] @ $0.90)"
-  let l1 = mkLimitOrder "pkh1" 1_000 90 Buy 
-
-  step "Action: Add l1 to order book"
-  let ob2 = addLimitOrder l1 ob1
+      -- BUY @10 of Asset @ $0.90
+      l1  = mkLimitOrder "pkh1" 1_000 90 Buy   
+      ob2 = addLimitOrder l1 ob1
 
   step "Assert: Order book has 1 limit order"
-  assertBool "Wrong obLimitOrders" $ Map.size (obLimitOrders ob2) == 1
+  Map.size (obLimitOrders ob2) @?= 1
 
   step "Assert: Order book curBid is 90"
-  assertBool "Wrong obCurBid" $ obCurBid ob2 == Just 90
+  obCurBid ob2 @?= Just 90
 
-  step "Action: Make limit order l1 (Sell [$10 /Asset] @$1.10)"
-  let l2 = mkLimitOrder "pkh2" 1_000 110 Sell
-
-  step "Action: Add l2 to order book"
-  let ob3 = addLimitOrder l2 ob2
+  let -- SELL @10 of Asset @ $1.10
+      l2  = mkLimitOrder "pkh2" 1_000 110 Sell 
+      ob3 = addLimitOrder l2 ob2
 
   step "Assert: Order book has 2 limit orders"
-  assertBool "Wrong obLimitOrders" $ Map.size (obLimitOrders ob3) == 2
+  Map.size (obLimitOrders ob3) @?= 2
 
   step "Assert: Order book curAsk is 110"
-  assertBool "Wrond obCurAsk" $ obCurAsk ob3 == Just 110
+  obCurAsk ob3 @?= Just 110
  
 -- Test: Bid/Ask price is updated after adding a limit order
 bidAskSetAfterAddingLimitOrders :: TestTree
@@ -147,9 +149,66 @@ addingInvalidLimitOrders =
     step "Assert: Order book unchanged (invalid orders rejected)"
     ob3 @?= ob2
 
+limitOrdersAtSamePriceLevel :: TestTree
+limitOrdersAtSamePriceLevel = 
+  testCaseSteps "Check adding limit orders at same price level" $ \step -> do 
+    let ob1  = mkEmptyOrderBook
+        lb1 = mkLimitOrder "pkh1" 1_000 80 Buy
+        lb2 = mkLimitOrder "pkh2" 1_000 80 Buy
+        ob2 = addLimitOrders [lb1, lb2] ob1
+
+    step "Assert: Order book has 2 limit orders (2 BUY)"
+    length (getOrdersAtKey 80 (obLimitOrders ob2)) @?= 2
+    length (getFlattenedBuyOrders ob2)             @?= 2
+    length (getFlattenedOrders ob2)                @?= 2
+
+    let ls1 = mkLimitOrder "pkh3" 1_000 110 Sell  
+        ls2 = mkLimitOrder "pkh4" 1_000 110 Sell  
+        ob3 = addLimitOrders [ls1, ls2] ob2
+
+    step "Assert: Order book as 4 limit orders (2 BUY, 2 SELL)"
+    length (getOrdersAtKey 110 (obLimitOrders ob3)) @?= 2
+    length (getFlattenedSellOrders ob3)             @?= 2
+    length (getFlattenedBuyOrders ob3)              @?= 2
+    length (getFlattenedOrders ob3)                 @?= 4
+
 -- TODO: 
 -- After executing a market order, either the bid or ask is updated,
 -- not both.
+
+-- Test takeOrdersForBuy
+testTakeBuyMarketOrder :: TestTree 
+testTakeBuyMarketOrder = 
+  testCaseSteps "Simple BUY market order" $ \step -> do 
+    let -- SELL 10xAsset at $1.00 (value @10)
+        lb1         = mkLimitOrder "pkh1" 10 100 Sell  
+        ob          = addLimitOrder lb1 mkEmptyOrderBook 
+        Just curAsk = obCurAsk ob
+        (accV, accOs, newOb) = takeOrdersForBuy curAsk 1000 ob (0, []) 
+
+    step "Assert: accV is $10"
+    accV @?= 1_000
+
+    step "Assert: length accOs == 1"
+    length accOs @?= 1
+
+testExecuteBuyMarketOrder :: TestTree
+testExecuteBuyMarketOrder = 
+  testCaseSteps "Simple execute BUY market order" $ \step -> do
+    let -- SELL 10xAsset at $1.00 (value @10)
+        lb1 = mkLimitOrder "pkh1" 10 100 Sell  
+        ob1 = addLimitOrder lb1 mkEmptyOrderBook 
+    
+    let -- BUY $10 of Asset
+        mo  = mkMarketOrder "pkh2" 1_000 Buy 
+        ob2 = executeMarketOrder mo ob1 
+
+    step "Assert: Order book empty"
+    null (getFlattenedOrders ob2) @? "Order book not empty"
+
+-- TODO: If no orders in order book, set bid/ask to Nothing
+-- step "Assert: newOb is empty"
+-- length (getFlattenedOrders newOb) @?= 0
 
 -- ---------------------------------------------------------------------- 
 -- Reference

@@ -72,14 +72,14 @@ instance Default OrderBook where
 
 instance Show OrderBook where 
   show ob = 
-           "Total orders:         " <> show (getTotalOrders ob)
-      <> "\nTotal limit orders:   " <> show (getTotalLimitOrders ob)
-      <> "\nTotal market orders:  " <> show (getTotalMarketOrders ob)
+   --    "Total orders:         " <> show (getTotalOrders ob)
+           "Total limit orders:   " <> show (getTotalLimitOrders ob)
+   -- <> "\nTotal market orders:  " <> show (getTotalMarketOrders ob)
       <> "\nIncrement:            " <> show (obIncrement ob)
-      <> "\nLast price:           " <> show (obLastPrice ob) 
+   -- <> "\nLast price:           " <> show (obLastPrice ob) 
       <> "\nBid price:            " <> show (obCurBid ob) 
       <> "\nAsk price:            " <> show (obCurAsk ob)
-      <> "\nOrders:\n" <> levels
+      <> "\nOrders:\n" -- <> levels
     where 
       levels = foldr (\(p', os) acc -> acc <> showPriceLevel p' os) 
                  mempty (Map.toList (obLimitOrders ob))
@@ -94,17 +94,23 @@ showPriceLevel price os =
 -- ----------------------------------------------------------------------   
 
 -- Return the total number of limit orders in an order book
-getTotalLimitOrders :: OrderBook -> Integer
-getTotalLimitOrders OrderBook{ obLimitOrders = os } = getSum $
-  foldr (\(_, os') acc -> acc <> Sum (fromIntegral (length os'))) mempty (Map.toList os)
+getTotalLimitOrders :: OrderBook -> Int
+getTotalLimitOrders OrderBook{ obLimitOrders = os } 
+  | Map.null os = 0
+  | otherwise = 
+      foldr (\(_, os') acc -> 
+          if not (null os') 
+            then acc + length os'
+            else acc) 
+        0 (Map.toList os)
 
 -- Return total number of market orders in an order book
-getTotalMarketOrders :: OrderBook -> Integer 
-getTotalMarketOrders OrderBook{ obMarketOrders = os } = fromIntegral $ length os
+-- getTotalMarketOrders :: OrderBook -> Integer 
+-- getTotalMarketOrders OrderBook{ obMarketOrders = os } = fromIntegral $ length os
 
 -- Return total number of orders in the order book
-getTotalOrders :: OrderBook -> Integer
-getTotalOrders ob = getTotalLimitOrders ob + getTotalMarketOrders ob
+-- getTotalOrders :: OrderBook -> Integer
+-- getTotalOrders ob = getTotalLimitOrders ob -- + getTotalMarketOrders ob
 
 -- Utilities to get a flattened order list of an order book
 getFlattenedOrders :: OrderBook -> [Order]

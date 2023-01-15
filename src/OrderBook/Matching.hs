@@ -31,6 +31,10 @@ executeMarketOrder o ob
         in 
           -- At this point, we can construct the transaction that will 
           -- send value to the wallets involved in the tx.
+
+          -- TODO: Clean up order book 
+          -- 1. Remove keys with empty lists
+          -- 2. Set ask/bid to nothing if order book empty
           updatedOrderBook
 
       -- Handle sell market order
@@ -41,6 +45,26 @@ executeMarketOrder o ob
 -- an order and return the updated orderbook.
 -- ----------------------------------------------------------------------  
 
+updateAsk :: OrderBook -> Value -> OrderBook 
+updateAsk ob curAsk = 
+  let m = obLimitOrders ob
+  in case m Map.! curAsk of 
+    -- Empty price level key also deleted here
+    [] -> case Map.lookupGT curAsk (Map.delete curAsk m) of 
+            Just (nextAsk, _) -> ob { obCurAsk = Just nextAsk }
+            Nothing           -> ob { obCurAsk = Nothing }
+    _  -> ob
+
+updateBid :: OrderBook -> Value -> OrderBook 
+updateBid ob curBid = 
+  let m = obLimitOrders ob
+  in case m Map.! curBid of 
+    -- Empty price level key also deleted here
+    [] -> case Map.lookupLT curBid (Map.delete curBid m) of 
+            Just (nextBid, _) -> ob { obCurBid = Just nextBid }
+            Nothing           -> ob { obCurBid = Nothing }
+    _  -> ob
+
 --
 -- Construct a BUY market order
 --
@@ -50,9 +74,7 @@ takeOrdersForBuy
     -> OrderBook                        -- order book to take orders from
     -> (Value, [Order])                 -- accumulated value and orders to consume
     -> (Value, [Order], OrderBook)      -- value + orders to consume, and updated order book
-takeOrdersForBuy k target ob (accV, accOs)
-  | null ordersAtKey = takeOrdersForBuy nextKey target ob (accV, accOs)
-  | otherwise = 
+takeOrdersForBuy k target ob (accV, accOs) =
   -- fold orders at this price level to match the market buy order
   let 
     (accV', accOs', updatedOrderBook) = 
@@ -86,13 +108,16 @@ takeOrdersForBuy k target ob (accV, accOs)
                 in (curValPlusOrderVal, osAppended, ob'{ obLimitOrders = m' })) 
         (accV, accOs, ob) ordersAtKey
   in 
-    if accV' > target 
-      then (accV', accOs', updateBidAsk' updatedOrderBook Buy) -- ask updated
-      else let obNewAsk = updatedOrderBook{ obCurAsk = Just nextKey }
-           in takeOrdersForBuy nextKey target obNewAsk (accV', accOs')
+    if accV' >= target 
+      then 
+        (accV', accOs', updateAsk updatedOrderBook k) 
+      else 
+        -- orders at this level all consumed, delete key and update ask
+        let newOb   = updateAsk updatedOrderBook k
+            nextKey = fromJust (obCurAsk newOb)
+        in takeOrdersForBuy nextKey target newOb (accV', accOs')
   where 
     ordersAtKey = getOrdersAtKey k (obLimitOrders ob)
-    nextKey = k + obIncrement ob
 
 --
 -- Constructing a SELL market order
@@ -103,9 +128,7 @@ takeOrdersForSell
     -> OrderBook                        -- order book to take orders from
     -> (Value, [Order])                 -- accumulated value and orders to consume
     -> (Value, [Order], OrderBook)      -- value + orders to consume, and updated order book
-takeOrdersForSell k targetAmt ob (accAmt, accOs) 
-  | null ordersAtKey = takeOrdersForSell nextKey targetAmt ob (accAmt, accOs)
-  | otherwise = 
+takeOrdersForSell k targetAmt ob (accAmt, accOs) =
   -- fold orders at this price level to match market sell order
   let 
     (accAmt', accOs', updatedOrderBook) = 
@@ -139,13 +162,15 @@ takeOrdersForSell k targetAmt ob (accAmt, accOs)
                 in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })) 
         (accAmt, accOs, ob) ordersAtKey
   in 
-    if accAmt' > targetAmt
-      then (accAmt', accOs', updateBidAsk' updatedOrderBook Sell) -- bid updated
-      else let obNewBid = updatedOrderBook{ obCurBid = Just nextKey }
-           in takeOrdersForSell nextKey targetAmt obNewBid (accAmt', accOs') -- recurse
+    if accAmt' >= targetAmt
+      then (accAmt', accOs', updateBid updatedOrderBook k)
+      else 
+        -- orders at this level all consumed, delete key and update bid 
+        let newOb   = updateBid updatedOrderBook k 
+            nextKey = fromJust (obCurBid newOb)
+         in takeOrdersForSell nextKey targetAmt newOb (accAmt', accOs')
   where 
     ordersAtKey = getOrdersAtKey k (obLimitOrders ob)
-    nextKey = k - obIncrement ob
 
 -- ----------------------------------------------------------------------   
 -- Adding Orders 
@@ -206,22 +231,6 @@ updateBidAsk ob o
       s = oSide o
       p = otlMaxPrice (oType o)
 
--- Call after executing a market order
-updateBidAsk' :: OrderBook -> OrderSide -> OrderBook 
-updateBidAsk' ob s 
-  | s == Buy =
-      -- check curAsk
-      let Just k = obCurAsk ob 
-      in if null $ obLimitOrders ob Map.! k
-        then updateBidAsk' (ob{ obCurAsk = Just k }) s
-        else ob{ obCurAsk = Just k }
-  | otherwise = 
-      -- check curBid
-      let Just k = obCurBid ob
-      in if null $ obLimitOrders ob Map.! k 
-        then updateBidAsk' (ob{ obCurBid = Just k }) s
-        else ob{ obCurBid = Just k }
-
 -- ----------------------------------------------------------------------   
 -- Utilities
 -- ----------------------------------------------------------------------   
@@ -234,20 +243,33 @@ getOrdersAtKey k m
 
 -- Check if a market order is fillable
 isMarketOrderFillable :: Order -> OrderBook -> Bool
-isMarketOrderFillable o ob = getTotalLiquidityOnSide side ob >= oAmount o
-  where side = if oSide o == Buy then Sell else Buy
+isMarketOrderFillable o ob = case oSide o of 
+  Buy -> 
+    let filteredOrders = getFlattenedSellOrders ob
+        target = oAmount o
+    in fst $ foldr (\o' (b, acc) -> 
+                if b then (b, acc)
+                else let valInOrder = oAmount o' * otlMaxPrice (oType o')
+                     in (acc + valInOrder >= target, acc + valInOrder)) 
+              (False, 0) filteredOrders 
+  Sell -> 
+    let filteredOrders = getFlattenedBuyOrders ob
+        targetAmt = oAmount o
+    in fst $ foldr (\o' (b, amt) -> 
+                if b then (b, amt) 
+                else let limitPrice = otlMaxPrice (oType o')
+                         amtInOrder = oAmount o' `div` limitPrice
+                     in (amt + amtInOrder >= targetAmt, amt + oAmount o'))
+              (False, 0) filteredOrders
 
--- Return total liquidity on the buy or sell side of the market
+-- Return total liquidity on the buy or sell side of the market in usd
 -- TODO: Cache total liquidity and update on executing limit orders
 getTotalLiquidityOnSide :: OrderSide -> OrderBook -> Value
 getTotalLiquidityOnSide side ob
-  | side == Buy = 
-      let filteredOrders = filter isBuyLimitOrder flattenedOrders
-      in foldVal filteredOrders
-  | otherwise = 
-      let filteredOrders = filter (not . isBuyLimitOrder) flattenedOrders
-      in foldVal filteredOrders
+  | side == Buy = foldAskVal (getFlattenedBuyOrders ob)
+  | otherwise   = foldBidVal (getFlattenedSellOrders ob)
   where 
-    flattenedOrders = concat $ snd <$> Map.toList (obLimitOrders ob)
-    foldVal os = foldr (\o acc -> acc + oAmount o) 0 os
+    foldBidVal os = foldr (\o acc -> acc + oAmount o) 0 os
+    foldAskVal os = foldr (\o acc -> let valInOrder = oAmount o * otlMaxPrice (oType o)
+                                     in acc + valInOrder) 0 os
 
