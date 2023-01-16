@@ -8,6 +8,7 @@ import Data.Map     (Map)
 import Data.Map     qualified as Map
 import Data.Maybe   (isJust, fromJust)
 import Data.Monoid  (Sum(..))
+import GHC.List     (foldl')
 
 -- ---------------------------------------------------------------------- 
 -- Data types
@@ -19,10 +20,6 @@ type Price = Integer
 data OrderBook = OrderBook
     { obLimitOrders  :: Map Value [Order]
    -- ^ A list of all limit orders in the order book
-    , obMarketOrders :: [Order]
-   -- ^ A list of all market orders in the order book
-    , obLastPrice    :: !(Maybe Integer)
-   -- ^ the last traded price
     , obCurBid       :: !(Maybe Integer)
    -- ^ current bid price, where traders are willing to buy
     , obCurAsk       :: !(Maybe Integer)
@@ -63,8 +60,6 @@ data OrderSide
 instance Default OrderBook where 
   def = OrderBook 
     { obLimitOrders  = Map.empty
-    , obMarketOrders = []
-    , obLastPrice    = Nothing 
     , obCurBid       = Nothing
     , obCurAsk       = Nothing
     , obIncrement    = 10
@@ -74,9 +69,7 @@ instance Show OrderBook where
   show ob = 
    --    "Total orders:         " <> show (getTotalOrders ob)
            "Total limit orders:   " <> show (getTotalLimitOrders ob)
-   -- <> "\nTotal market orders:  " <> show (getTotalMarketOrders ob)
       <> "\nIncrement:            " <> show (obIncrement ob)
-   -- <> "\nLast price:           " <> show (obLastPrice ob) 
       <> "\nBid price:            " <> show (obCurBid ob) 
       <> "\nAsk price:            " <> show (obCurAsk ob)
       <> "\nOrders:\n" <> levels
@@ -90,7 +83,19 @@ showPriceLevel price os = "    " <>
   show price <> ": " <> show (length os) <> " orders.\n"
 
 showOrdersAtLevel :: Value -> OrderBook -> String
-showOrdersAtLevel level ob = maybe "" show (Map.lookup level (obLimitOrders ob))
+showOrdersAtLevel level ob = case mos of 
+    Nothing  -> ""
+    Just os' -> foldl' (\acc o -> acc <> renderOrder o) mempty os' 
+  where 
+    mos = Map.lookup level (obLimitOrders ob)
+
+renderOrder :: Order -> String
+renderOrder o = oPkh o <> "  |  " <> show (oAmount o)
+                       <> "  |  " <> show (oSide o)
+                       <> "\n"
+
+renderOrders :: [Order] -> String
+renderOrders = foldl' (\acc o -> acc <> renderOrder o) mempty 
 
 -- ----------------------------------------------------------------------   
 -- Utils
@@ -106,14 +111,6 @@ getTotalLimitOrders OrderBook{ obLimitOrders = os }
             then acc + length os'
             else acc) 
         0 (Map.toList os)
-
--- Return total number of market orders in an order book
--- getTotalMarketOrders :: OrderBook -> Integer 
--- getTotalMarketOrders OrderBook{ obMarketOrders = os } = fromIntegral $ length os
-
--- Return total number of orders in the order book
--- getTotalOrders :: OrderBook -> Integer
--- getTotalOrders ob = getTotalLimitOrders ob -- + getTotalMarketOrders ob
 
 -- Utilities to get a flattened order list of an order book
 getFlattenedOrders :: OrderBook -> [Order]

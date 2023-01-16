@@ -25,7 +25,7 @@ main = do
   setEnv "TASTY_COLOR"          "always"
   setEnv "TASTY_HIDE_SUCCESSES" "false"
 
-  defaultMain tests' `catch` 
+  defaultMain tests `catch` 
     (\e -> do 
       if e == ExitSuccess
         then putStrLn "Exited successfully"
@@ -97,7 +97,6 @@ testLargeOrderBookBuy :: TestTree
 testLargeOrderBookBuy = testCaseSteps "Test large order book" $ \step -> do
   
   let mob = mockOrderBook
-      -- mo1 = mkMarketOrder "pkhm1" 1 Sell 
       (accAmt, accOs, ob) = takeOrdersForBuy (fromJust $ obCurAsk mob) 7 mob (0, [])
 
   step ("Order Book:\n" ++ show ob)
@@ -116,10 +115,10 @@ testLargeOrderBookSell = testCaseSteps "Test large order book" $ \step -> do
   step ("Order @ 90 Before:\n" ++ showOrdersAtLevel 90 mob)
   step ("Order @ 80 Before:\n" ++ showOrdersAtLevel 80 mob)
 
-  step ("Order @ 90 After:\n" ++ showOrdersAtLevel 90 ob)
-  step ("Order @ 80 After:\n" ++ showOrdersAtLevel 80 ob)
+  step ("Orders @ 90 After:\n" ++ showOrdersAtLevel 90 ob)
+  step ("Orders @ 80 After:\n" ++ showOrdersAtLevel 80 ob)
 
-  step ("AccOs:\n" ++ show accOs)
+  step ("AccOs:\n" ++ renderOrders accOs)
   step ("AccAmt:\n" ++ show accAmt)
 
 -- ---------------------------------------------------------------------- 
@@ -131,23 +130,10 @@ testEmptyOrderBook = testCaseSteps "Test empty order book" $ \step -> do
   step "Action: Instantiate empty order book"
   let ob = mkEmptyOrderBook
 
-  step "Assert: obLimitOrders is empty"
   Map.size (obLimitOrders ob) @?= 0
-  
-  step "Assert: obMarketOrders is empty"
-  null (obMarketOrders ob) @? "Wrong obMarketOrders"
-
-  step "Assert: obLastPrice is Nothing"
-  isNothing (obLastPrice ob) @? "Wrong obLastPrice"
-
-  step "Assert: obCurBid is Nothing"
-  isNothing (obCurBid ob) @? "Wrong obCurBid"
-
-  step "Assert: obCurAsk is Nothing"
-  isNothing (obCurAsk ob) @? "Wrong obCurAsk"
-
-  step "Assert: obIncrement > 0"
-  obIncrement ob > 0 @? "Wrong obIncrement"
+  isNothing (obCurBid ob)     @? "Wrong obCurBid"
+  isNothing (obCurAsk ob)     @? "Wrong obCurAsk"
+  obIncrement ob > 0          @? "Wrong obIncrement"
 
 testAddingLimitOrders :: TestTree
 testAddingLimitOrders = testCaseSteps "Test adding a limit order" $ \step -> do
