@@ -14,6 +14,8 @@ tests :: TestTree
 tests = testGroup "Large Order Book Tests"
           [ testExecuteBuyMarketOrder
           , testExecuteSellMarketOrder
+          , testTakeOrdersForBuy
+          , testTakeOrdersForSell
           ]
 
 -- ---------------------------------------------------------------------- 
@@ -95,22 +97,72 @@ testExecuteSellMarketOrder =
     step ("FINAL ORDER BOOK:\n" ++ show mob2)
 
 -- ---------------------------------------------------------------------- 
--- Test: Sell Market Orders
+-- Test: Take Orders for Buy
 -- ---------------------------------------------------------------------- 
 
-testLargeOrderBookSell :: TestTree 
-testLargeOrderBookSell = testCaseSteps "Test large order book" $ \step -> do
-  
-  let mob = mockOrderBook
-      (accAmt, accOs, ob) = takeOrdersForSell (fromJust $ obCurBid mob) 6 mob (0, [])
+testTakeOrdersForBuy :: TestTree
+testTakeOrdersForBuy = 
+  testCaseSteps "Test take orders for buy" $ \step -> do
+    let mob         = mockOrderBook
+        Just curAsk = obCurAsk mob
 
-  step ("Order Book:\n" ++ show ob)
-  step ("Order @ 90 Before:\n" ++ showOrdersAtLevel 90 mob)
-  step ("Order @ 80 Before:\n" ++ showOrdersAtLevel 80 mob)
+        -- Market order: Buy 20xAsset at curAsk ($1.10)
+        (accAmt, accOs, newOb) = takeOrdersForBuy curAsk 20 mob (0,[])
 
-  step ("Orders @ 90 After:\n" ++ showOrdersAtLevel 90 ob)
-  step ("Orders @ 80 After:\n" ++ showOrdersAtLevel 80 ob)
+    step "Asserting correct new order book"
+    obCurAsk newOb @?= Just 130 
+    obCurBid newOb @?= Just 90
 
-  step ("AccOs:\n" ++ renderOrders accOs)
-  step ("AccAmt:\n" ++ show accAmt)
+    step "Asserting correct returned data"
+    accAmt         @?= 20
+    length accOs   @?= 6
+
+    -- Show final order book and taken orders
+    step ("FINAL ORDER BOOK:\n" ++ show newOb)
+    step ("ORDERS TO CONSUME:\n" ++ renderOrders accOs)
+
+-- ---------------------------------------------------------------------- 
+-- Test: Take Orders for Sell 
+-- ---------------------------------------------------------------------- 
+
+testTakeOrdersForSell :: TestTree
+testTakeOrdersForSell = 
+  testCaseSteps "Test take orders for sell" $ \step -> do 
+    let mob         = mockOrderBook 
+        Just curBid = obCurBid mob
+        
+        -- Market order: Sell 20XAsset at curBid ($0.90)
+        (accAmt, accOs, newOb) = takeOrdersForSell curBid 20 mob (0,[])
+
+    step "Asserting correct new order book"
+    obCurAsk newOb @?= Just 110
+    obCurBid newOb @?= Just 70 
+
+    step "Asserting correct returned data"
+    accAmt       @?= 20
+    length accOs @?= 6
+
+    step ("FINAL ORDER BOOK:\n" ++ show newOb)
+    step ("ORDERS TO CONSUME:\n" ++ renderOrders accOs)
+
+-- ---------------------------------------------------------------------- 
+-- Test: Ref 
+-- ---------------------------------------------------------------------- 
+
+testLargeOrderBook :: TestTree 
+testLargeOrderBook = 
+  testCaseSteps "Test large order book" $ \step -> do
+    let mob = mockOrderBook
+        (accAmt, accOs, ob) = takeOrdersForSell (fromJust $ obCurBid mob) 6 mob (0, [])
+
+    step ("Order Book:\n" ++ show ob)
+    step ("Order @ 90 Before:\n" ++ showOrdersAtLevel 90 mob)
+    step ("Order @ 80 Before:\n" ++ showOrdersAtLevel 80 mob)
+
+    step ("Orders @ 90 After:\n" ++ showOrdersAtLevel 90 ob)
+    step ("Orders @ 80 After:\n" ++ showOrdersAtLevel 80 ob)
+
+    step ("AccOs:\n" ++ renderOrders accOs)
+    step ("AccAmt:\n" ++ show accAmt)
+
 

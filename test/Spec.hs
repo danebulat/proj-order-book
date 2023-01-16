@@ -35,7 +35,7 @@ main = do
   setEnv "TASTY_COLOR"          "always"
   setEnv "TASTY_HIDE_SUCCESSES" "false"
 
-  defaultMain BasicTests.tests `catch` 
+  defaultMain tests `catch` 
     (\e -> do 
       if e == ExitSuccess
         then putStrLn "Exited successfully"

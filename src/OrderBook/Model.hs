@@ -79,7 +79,7 @@ instance Show OrderBook where
 -- Render orders at a price level
 showPriceLevel :: Value -> [Order] -> String 
 showPriceLevel price os = "    " <> 
-  show price <> ": " <> show (length os) <> " orders.\n"
+  show price <> ": " <> show (length os) <> " orders\n"
 
 showOrdersAtLevel :: Value -> OrderBook -> String
 showOrdersAtLevel level ob = case mos of 
