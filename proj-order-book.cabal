@@ -54,6 +54,7 @@ test-suite tests
       exitcode-stdio-1.0
     other-modules:
       Spec.LargeOrderBookTests
+      Spec.BasicOrderBookTests
     hs-source-dirs:
       test
     main-is:

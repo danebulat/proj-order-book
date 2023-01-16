@@ -3,15 +3,9 @@
 
 module Spec.LargeOrderBookTests where
 
-
-import Control.Exception
+import Data.Maybe (fromJust)
 import Test.Tasty
 import Test.Tasty.HUnit
-import System.Exit (ExitCode(ExitSuccess))
-import System.Environment
-
-import Data.Map qualified as Map
-import Data.Maybe (isNothing, isJust, fromJust)
 
 import OrderBook.Model
 import OrderBook.Matching
@@ -99,14 +93,6 @@ testExecuteSellMarketOrder =
 
     -- Show final order book
     step ("FINAL ORDER BOOK:\n" ++ show mob2)
-
-
---(accAmt, accOs, ob) = takeOrdersForBuy (fromJust $ obCurAsk mob) 7 mob (0, [])
--- step ("Order Book:\n" ++ show ob)
--- step ("Order @ 110 Before:\n" ++ showOrdersAtLevel 110 mob)
--- step ("Order @ 110 After:\n" ++ showOrdersAtLevel 110 ob)
--- step ("AccOs:\n" ++ show accOs)
--- step ("AccAmt:\n" ++ show accAmt)
 
 -- ---------------------------------------------------------------------- 
 -- Test: Sell Market Orders
