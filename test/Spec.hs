@@ -55,8 +55,50 @@ tests = testGroup "Tests"
           , testExecuteSellMarketOrder
           ]
 
+tests' :: TestTree
+tests' = testGroup "Large Order Book Test" 
+          [ testLargeOrderBook ]
+
 -- ---------------------------------------------------------------------- 
--- Unit Tests
+-- Larger Tests
+-- ---------------------------------------------------------------------- 
+
+mockOrderBook :: OrderBook 
+mockOrderBook = 
+  -- BUY limit orders
+  let lb1 = mkLimitOrder "pkhb1" 7 90 Buy    -- BUY 7xAsset @ $0.90
+      lb2 = mkLimitOrder "pkhb2" 2 90 Buy    -- BUY 2xAsset @ $0.90
+      lb3 = mkLimitOrder "pkhb3" 5 80 Buy    -- BUY 5xAsset @ $0.80
+      lb4 = mkLimitOrder "pkhb4" 3 80 Buy    -- BUY 3xAsset @ $0.80
+      lb5 = mkLimitOrder "pkhb5" 1 80 Buy    -- BUY 1xAsset @ $0.80
+      lb6 = mkLimitOrder "pkhb6" 7 70 Buy    -- BUY 7xAsset @ $0.70
+      lb7 = mkLimitOrder "pkhb7" 8 70 Buy    -- BUY 8xAsset @ $0.70
+      lb8 = mkLimitOrder "pkhb8" 4 70 Buy    -- BUY 4xAsset @ $0.70
+      lb9 = mkLimitOrder "pkhb9" 9 60 Buy    -- BUY 9xAsset @ $0.60
+
+  -- SELL limit orders
+      ls1 = mkLimitOrder "pkhs2" 5 110 Sell  -- SELL 5xAsset @ $1.10
+      ls2 = mkLimitOrder "pkhs2" 3 110 Sell  -- SELL 3xAsset @ $1.10
+      ls3 = mkLimitOrder "pkhs3" 6 120 Sell  -- SELL 6xAsset @ $1.20
+      ls4 = mkLimitOrder "pkhs4" 2 120 Sell  -- SELL 2xAsset @ $1.20
+      ls5 = mkLimitOrder "pkhs5" 3 120 Sell  -- SELL 3xAsset @ $1.20
+      ls6 = mkLimitOrder "pkhs6" 7 130 Sell  -- SELL 7xAsset @ $1.30
+      ls7 = mkLimitOrder "pkhs7" 9 130 Sell  -- SELL 9xAsset @ $1.30
+      ls8 = mkLimitOrder "pkhs8" 1 130 Sell  -- SELL 1xAsset @ $1.30
+      ls9 = mkLimitOrder "pkhs9" 2 140 Sell  -- SELL 1xAsset @ $1.40
+
+      ob = addLimitOrders 
+            [ lb1, lb2, lb3, lb4, lb5, lb6, lb7, lb8, lb9
+            , ls1, ls2, ls3, ls4, ls5, ls6, ls7, ls8, ls9
+            ] mkEmptyOrderBook
+  in ob
+
+testLargeOrderBook :: TestTree 
+testLargeOrderBook = testCaseSteps "Test large order book" $ \step -> do
+  step ("Large Order Book:\n" ++ show mockOrderBook)
+
+-- ---------------------------------------------------------------------- 
+-- Multi-Step Unit Tests
 -- ---------------------------------------------------------------------- 
 
 testEmptyOrderBook :: TestTree
@@ -85,8 +127,8 @@ testEmptyOrderBook = testCaseSteps "Test empty order book" $ \step -> do
 testAddingLimitOrders :: TestTree
 testAddingLimitOrders = testCaseSteps "Test adding a limit order" $ \step -> do
   let ob1 = mkEmptyOrderBook 
-      -- BUY @10 of Asset @ $0.90
-      l1  = mkLimitOrder "pkh1" 1_000 90 Buy   
+      -- BUY 10xAsset @ $0.90
+      l1  = mkLimitOrder "pkh1" 10 90 Buy   
       ob2 = addLimitOrder l1 ob1
 
   step "Assert: Order book has 1 limit order"
@@ -95,8 +137,8 @@ testAddingLimitOrders = testCaseSteps "Test adding a limit order" $ \step -> do
   step "Assert: Order book curBid is 90"
   obCurBid ob2 @?= Just 90
 
-  let -- SELL @10 of Asset @ $1.10
-      l2  = mkLimitOrder "pkh2" 1_000 110 Sell 
+  let -- SELL 10xAsset @ $1.10
+      l2  = mkLimitOrder "pkh2" 10 110 Sell 
       ob3 = addLimitOrder l2 ob2
 
   step "Assert: Order book has 2 limit orders"
@@ -110,9 +152,9 @@ bidAskSetAfterAddingLimitOrders :: TestTree
 bidAskSetAfterAddingLimitOrders = 
   testCaseSteps "Check bid/ask prices after adding limit orders" $ \step -> do 
     let ob1 = mkEmptyOrderBook
-        lb1 = mkLimitOrder "pkh1" 1_000 90 Buy    -- BUY $10 @ $0.90
-        ls1 = mkLimitOrder "pkh2" 2_000 110 Sell  -- SELL $20 of Asset @ $1.10
-        ob2 = addLimitOrders [lb1, ls1] ob1       -- Add limit orders
+        lb1 = mkLimitOrder "pkh1" 10 90  Buy   -- BUY 10xAsset @ $0.90
+        ls1 = mkLimitOrder "pkh2" 20 110 Sell  -- SELL 20xAsset @ $1.10
+        ob2 = addLimitOrders [lb1, ls1] ob1    -- Add limit orders
 
     step "Assert: Bid is set correctly (90)"
     obCurBid ob2 @?= Just 90
@@ -120,9 +162,9 @@ bidAskSetAfterAddingLimitOrders =
     step "Assert: Ask is set correctly (110)"
     obCurAsk ob2 @?= Just 110
 
-    let lb2 = mkLimitOrder "pkh3" 5_000 80 Buy    -- BUY $5 of Asset @ $0.80
-        ls2 = mkLimitOrder "pkh4" 5_000 100 Sell  -- SELL $5 of Asset @ $1
-        ob3 = addLimitOrders [lb2, ls2] ob2       -- Add limit orders
+    let lb2 = mkLimitOrder "pkh3" 5 80 Buy    -- BUY 5xAsset @ $0.80
+        ls2 = mkLimitOrder "pkh4" 5 100 Sell  -- SELL 5xAsset Asset @ $1
+        ob3 = addLimitOrders [lb2, ls2] ob2   -- Add limit orders
 
     step "Assert: Bid is set correctly (90)"
     obCurBid ob3 @?= Just 90
@@ -137,15 +179,15 @@ addingInvalidLimitOrders :: TestTree
 addingInvalidLimitOrders = 
   testCaseSteps "Check adding invalid limit orders" $ \step -> do
     let ob1  = mkEmptyOrderBook
-        lb1 = mkLimitOrder "pkh1" 1_000 80 Buy
-        ls1 = mkLimitOrder "pkh2" 1_000 120 Sell
+        lb1 = mkLimitOrder "pkh1" 1 80 Buy
+        ls1 = mkLimitOrder "pkh2" 1 120 Sell
         ob2 = addLimitOrders [lb1, ls1] ob1
 
     obCurBid ob2 @?= Just 80
     obCurAsk ob2 @?= Just 120 
 
-    let lb2 = mkLimitOrder "pkh3" 1_000 120 Buy  -- invalid
-        ls2 = mkLimitOrder "pkh3" 1_000 70  Sell -- invalid
+    let lb2 = mkLimitOrder "pkh3" 1 120 Buy  -- invalid
+        ls2 = mkLimitOrder "pkh3" 1 70  Sell -- invalid
         ob3 = addLimitOrders [lb2, ls2] ob2
 
     step "Assert: Order book unchanged (invalid orders rejected)"
@@ -155,8 +197,8 @@ limitOrdersAtSamePriceLevel :: TestTree
 limitOrdersAtSamePriceLevel = 
   testCaseSteps "Check adding limit orders at same price level" $ \step -> do 
     let ob1  = mkEmptyOrderBook
-        lb1 = mkLimitOrder "pkh1" 1_000 80 Buy
-        lb2 = mkLimitOrder "pkh2" 1_000 80 Buy
+        lb1 = mkLimitOrder "pkh1" 1 80 Buy
+        lb2 = mkLimitOrder "pkh2" 1 80 Buy
         ob2 = addLimitOrders [lb1, lb2] ob1
 
     step "Assert: Order book has 2 limit orders (2 BUY)"
@@ -164,8 +206,8 @@ limitOrdersAtSamePriceLevel =
     length (getFlattenedBuyOrders ob2)             @?= 2
     length (getFlattenedOrders ob2)                @?= 2
 
-    let ls1 = mkLimitOrder "pkh3" 1_000 110 Sell  
-        ls2 = mkLimitOrder "pkh4" 1_000 110 Sell  
+    let ls1 = mkLimitOrder "pkh3" 1 110 Sell  
+        ls2 = mkLimitOrder "pkh4" 1 110 Sell  
         ob3 = addLimitOrders [ls1, ls2] ob2
 
     step "Assert: Order book as 4 limit orders (2 BUY, 2 SELL)"
@@ -182,10 +224,10 @@ testTakeBuyMarketOrder =
         lb1         = mkLimitOrder "pkh1" 10 100 Sell  
         ob          = addLimitOrder lb1 mkEmptyOrderBook 
         Just curAsk = obCurAsk ob
-        (accV, accOs, newOb) = takeOrdersForBuy curAsk 1000 ob (0, []) 
+        (accV, accOs, newOb) = takeOrdersForBuy curAsk 10 ob (0, []) 
 
-    step "Assert: 1000 consumed value"
-    accV @?= 1_000
+    step "Assert: 10 consumed amount"
+    accV @?= 10
 
     step "Assert: 1 consumed order"
     length accOs @?= 1
@@ -198,7 +240,7 @@ testTakeSellMarketOrder :: TestTree
 testTakeSellMarketOrder = 
   testCaseSteps "Simple SELL market order" $ \step -> do 
     let -- BUY $10 of Asset at $1.00 (value @10)
-        lb1         = mkLimitOrder "pkh1" 1_000 100 Buy  
+        lb1         = mkLimitOrder "pkh1" 10 100 Buy  
         ob          = addLimitOrder lb1 mkEmptyOrderBook 
         Just curBid = obCurBid ob
         (accAmt, accOs, newOb) = takeOrdersForSell curBid 10 ob (0, []) 
@@ -220,17 +262,17 @@ testExecuteBuyMarketOrder =
         ob1 = addLimitOrder ls1 mkEmptyOrderBook 
     
     let -- BUY $10 of Asset
-        mo  = mkMarketOrder "pkh2" 1_000 Buy 
+        mo  = mkMarketOrder "pkh2" 10 Buy 
         ob2 = executeMarketOrder mo ob1 
 
     step "Assert: Order book empty"
     null (getFlattenedOrders ob2) @? "Order book not empty"
-    
+ 
 testExecuteSellMarketOrder :: TestTree
 testExecuteSellMarketOrder = 
   testCaseSteps "Simple execute SELL market order" $ \step -> do
     let -- BUY $10 of Asset at $1.00 (value 10xAsset)
-        lb1 = mkLimitOrder "pkh1" 1_000 100 Buy 
+        lb1 = mkLimitOrder "pkh1" 10 100 Buy 
         ob1 = addLimitOrder lb1 mkEmptyOrderBook 
     
     let -- SELL 10xAsset

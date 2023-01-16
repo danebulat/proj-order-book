@@ -84,48 +84,47 @@ takeOrdersForBuy
     -> OrderBook                        -- order book to take orders from
     -> (Value, [Order])                 -- accumulated value and orders to consume
     -> (Value, [Order], OrderBook)      -- value + orders to consume, and updated order book
-takeOrdersForBuy k target ob (accV, accOs) =
+takeOrdersForBuy k targetAmt ob (accV, accOs) =
   -- fold orders at this price level to match the market buy order
   let 
     (accV', accOs', updatedOrderBook) = 
      foldr (\o (v', os', ob') -> 
-        if v' >= target then (v', os', ob')  -- target already met
-          else 
-            let orderAssetAmt      = oAmount o
-                orderVal           = oAmount o * k
-                curValPlusOrderVal = v' + orderVal
-                osAppended         = os' ++ [o]
-            in
-            -- check target met when consuming this order
-            if curValPlusOrderVal >= target then 
-                -- leftover means a partially filled limit order
-                let leftover = curValPlusOrderVal - target in 
-                  if leftover > 0 then
-                      -- keep order and set its amount to leftover value of asset
-                      let 
-                        assetAmtLeft   = orderAssetAmt - (leftover `div` k)
-                        orderToInsert  = o{ oAmount = assetAmtLeft }
-                        orderValToTake = orderVal - leftover
-                        m' = Map.adjust (\os -> orderToInsert:drop 1 os) k (obLimitOrders ob')
-                      in (v'+orderValToTake, osAppended, (ob'{ obLimitOrders = m' }))
-                    else 
-                      -- no leftover, remove entire order from order book
-                      let m' = Map.adjust (drop 1) k (obLimitOrders ob')
-                      in (curValPlusOrderVal, osAppended, ob'{ obLimitOrders = m' })
-              -- target not yet met, take order
-              else 
-                let m' = Map.adjust (drop 1) k (obLimitOrders ob')
-                in (curValPlusOrderVal, osAppended, ob'{ obLimitOrders = m' })) 
+        if v' >= targetAmt then (v', os', ob')  -- target already met
+        else 
+          let orderAssetAmt      = oAmount o
+              curAmtPlusOrderAmt = v' + orderAssetAmt
+              osAppended         = os' ++ [o]
+          in
+          -- check target met when consuming this order
+          if curAmtPlusOrderAmt >= targetAmt then 
+              -- leftover means a partially filled limit order
+              let leftoverAmt = curAmtPlusOrderAmt - targetAmt in 
+                if leftoverAmt > 0 then
+                    -- keep order and set its amount to leftover amount of asset
+                    let 
+                      assetAmtLeft   = orderAssetAmt - leftoverAmt
+                      orderToInsert  = o{ oAmount = assetAmtLeft }
+                      orderValToTake = orderAssetAmt - leftoverAmt
+                      m' = Map.adjust (\os -> orderToInsert:drop 1 os) k (obLimitOrders ob')
+                    in (v'+orderValToTake, osAppended, (ob'{ obLimitOrders = m' }))
+                  else 
+                    -- no leftover, remove entire order from order book
+                    let m' = Map.adjust (drop 1) k (obLimitOrders ob')
+                    in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })
+            -- target not yet met, take order
+            else 
+              let m' = Map.adjust (drop 1) k (obLimitOrders ob')
+              in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })) 
         (accV, accOs, ob) ordersAtKey
   in 
-    if accV' >= target 
+    if accV' >= targetAmt 
       then 
         (accV', accOs', updateAsk updatedOrderBook k) 
       else 
         -- orders at this level all consumed, delete key and update ask
         let newOb   = updateAsk updatedOrderBook k
             nextKey = fromJust (obCurAsk newOb)
-        in takeOrdersForBuy nextKey target newOb (accV', accOs')
+        in takeOrdersForBuy nextKey targetAmt newOb (accV', accOs')
   where 
     ordersAtKey = getOrdersAtKey k (obLimitOrders ob)
 
@@ -145,32 +144,31 @@ takeOrdersForSell k targetAmt ob (accAmt, accOs) =
     (accAmt', accOs', updatedOrderBook) = 
       foldr (\o (v', os', ob') -> 
         if v' >= targetAmt then (v', os', ob')  -- target already met
-          else 
-            let orderVal           = oAmount o 
-                orderAssetAmt      = orderVal `div` k
-                curAmtPlusOrderAmt = v' + orderAssetAmt
-                osAppended         = os' ++ [o]
-            in
-            -- check target met when consuming this order
-            if curAmtPlusOrderAmt >= targetAmt then 
-                -- leftover means a partially filled limit order
-                let leftoverAmt = curAmtPlusOrderAmt - targetAmt in 
-                  if leftoverAmt > 0 then
-                      -- keep order and set its amount to leftover value of asset
-                      let 
-                        assetAmtLeft   = orderAssetAmt - leftoverAmt 
-                        orderToInsert  = o{ oAmount = assetAmtLeft }
-                        orderAmtToTake = orderAssetAmt - leftoverAmt
-                        m' = Map.adjust (\os -> orderToInsert:drop 1 os) k (obLimitOrders ob')
-                      in (v'+orderAmtToTake, osAppended, (ob'{ obLimitOrders = m' }))
-                    else 
-                      -- no leftover, remove entire limit order from order book
-                      let m' = Map.adjust (drop 1) k (obLimitOrders ob')
-                      in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })
-              -- target not yet met, take order
-              else 
-                let m' = Map.adjust (drop 1) k (obLimitOrders ob')
-                in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })) 
+        else 
+          let orderAssetAmt      = oAmount o 
+              curAmtPlusOrderAmt = v' + orderAssetAmt
+              osAppended         = os' ++ [o]
+          in
+          -- check target met when consuming this order
+          if curAmtPlusOrderAmt >= targetAmt then 
+              -- leftover means a partially filled limit order
+              let leftoverAmt = curAmtPlusOrderAmt - targetAmt in 
+                if leftoverAmt > 0 then
+                    -- keep order and set its amount to leftover value of asset
+                    let 
+                      assetAmtLeft   = orderAssetAmt - leftoverAmt 
+                      orderToInsert  = o{ oAmount = assetAmtLeft }
+                      orderAmtToTake = orderAssetAmt - leftoverAmt
+                      m' = Map.adjust (\os -> orderToInsert:drop 1 os) k (obLimitOrders ob')
+                    in (v'+orderAmtToTake, osAppended, (ob'{ obLimitOrders = m' }))
+                  else 
+                    -- no leftover, remove entire limit order from order book
+                    let m' = Map.adjust (drop 1) k (obLimitOrders ob')
+                    in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })
+            -- target not yet met, take order
+            else 
+              let m' = Map.adjust (drop 1) k (obLimitOrders ob')
+              in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })) 
         (accAmt, accOs, ob) ordersAtKey
   in 
     if accAmt' >= targetAmt
@@ -257,30 +255,28 @@ isMarketOrderFillable :: Order -> OrderBook -> Bool
 isMarketOrderFillable o ob = case oSide o of 
   Buy -> 
     let filteredOrders = getFlattenedSellOrders ob
-        target = oAmount o
+        targetAmt = oAmount o
     in fst $ foldr (\o' (b, acc) -> 
                 if b then (b, acc)
-                else let valInOrder = oAmount o' * otlMaxPrice (oType o')
-                     in (acc + valInOrder >= target, acc + valInOrder)) 
+                else let amtInOrder = oAmount o' 
+                     in (acc + amtInOrder >= targetAmt, acc + amtInOrder)) 
               (False, 0) filteredOrders 
   Sell -> 
     let filteredOrders = getFlattenedBuyOrders ob
         targetAmt = oAmount o
-    in fst $ foldr (\o' (b, amt) -> 
-                if b then (b, amt) 
-                else let limitPrice = otlMaxPrice (oType o')
-                         amtInOrder = oAmount o' `div` limitPrice
-                     in (amt + amtInOrder >= targetAmt, amt + oAmount o'))
+    in fst $ foldr (\o' (b, acc) -> 
+                if b then (b, acc) 
+                else let amtInOrder = oAmount o'
+                     in (acc + amtInOrder >= targetAmt, acc + oAmount o'))
               (False, 0) filteredOrders
 
 -- Return total liquidity on the buy or sell side of the market in usd
 -- TODO: Cache total liquidity and update on executing limit orders
 getTotalLiquidityOnSide :: OrderSide -> OrderBook -> Value
 getTotalLiquidityOnSide side ob
-  | side == Buy = foldAskVal (getFlattenedBuyOrders ob)
-  | otherwise   = foldBidVal (getFlattenedSellOrders ob)
+  | side == Buy = foldVal (getFlattenedBuyOrders ob)
+  | otherwise   = foldVal (getFlattenedSellOrders ob)
   where 
-    foldBidVal os = foldr (\o acc -> acc + oAmount o) 0 os
-    foldAskVal os = foldr (\o acc -> let valInOrder = oAmount o * otlMaxPrice (oType o)
-                                     in acc + valInOrder) 0 os
+    foldVal os = foldr (\o acc -> let valInOrder = oAmount o * otlMaxPrice (oType o)
+                                  in acc + valInOrder) 0 os
 

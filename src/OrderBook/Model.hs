@@ -79,14 +79,14 @@ instance Show OrderBook where
    -- <> "\nLast price:           " <> show (obLastPrice ob) 
       <> "\nBid price:            " <> show (obCurBid ob) 
       <> "\nAsk price:            " <> show (obCurAsk ob)
-      <> "\nOrders:\n" -- <> levels
+      <> "\nOrders:\n" <> levels
     where 
       levels = foldr (\(p', os) acc -> acc <> showPriceLevel p' os) 
                  mempty (Map.toList (obLimitOrders ob))
 
 -- Render orders at a price level
 showPriceLevel :: Value -> [Order] -> String 
-showPriceLevel price os = 
+showPriceLevel price os = "    " <> 
   show price <> ": " <> show (length os) <> " orders.\n"
 
 -- ----------------------------------------------------------------------   
@@ -155,5 +155,9 @@ mkMarketOrder :: String -> Value -> OrderSide -> Order
 mkMarketOrder = Order Market 
 
 -- Create a limit order
-mkLimitOrder :: String -> Value -> Price -> OrderSide -> Order
-mkLimitOrder pkh val price = Order (Limit price) pkh val
+mkLimitOrder :: String      -- Public payment key hash
+             -> Value       -- Amount of asset to buy/sell
+             -> Price       -- Price level to buy/sell
+             -> OrderSide   -- Buy or Sell
+             -> Order
+mkLimitOrder pkh amt price = Order (Limit price) pkh amt
