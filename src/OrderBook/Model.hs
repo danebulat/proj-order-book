@@ -89,6 +89,9 @@ showPriceLevel :: Value -> [Order] -> String
 showPriceLevel price os = "    " <> 
   show price <> ": " <> show (length os) <> " orders.\n"
 
+showOrdersAtLevel :: Value -> OrderBook -> String
+showOrdersAtLevel level ob = maybe "" show (Map.lookup level (obLimitOrders ob))
+
 -- ----------------------------------------------------------------------   
 -- Utils
 -- ----------------------------------------------------------------------   
