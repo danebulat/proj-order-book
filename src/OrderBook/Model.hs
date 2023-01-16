@@ -67,7 +67,6 @@ instance Default OrderBook where
 
 instance Show OrderBook where 
   show ob = 
-   --    "Total orders:         " <> show (getTotalOrders ob)
            "Total limit orders:   " <> show (getTotalLimitOrders ob)
       <> "\nIncrement:            " <> show (obIncrement ob)
       <> "\nBid price:            " <> show (obCurBid ob) 
@@ -111,6 +110,12 @@ getTotalLimitOrders OrderBook{ obLimitOrders = os }
             then acc + length os'
             else acc) 
         0 (Map.toList os)
+
+getTotalBuyOrders :: OrderBook -> Int
+getTotalBuyOrders = length . getFlattenedBuyOrders
+
+getTotalSellOrders :: OrderBook -> Int
+getTotalSellOrders = length . getFlattenedSellOrders
 
 -- Utilities to get a flattened order list of an order book
 getFlattenedOrders :: OrderBook -> [Order]

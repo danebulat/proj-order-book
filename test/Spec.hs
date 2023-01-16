@@ -14,6 +14,7 @@ import Data.Maybe (isNothing, isJust, fromJust)
 
 import OrderBook.Model
 import OrderBook.Matching
+import Spec.LargeOrderBookTests qualified as LargeTests
 
 -- ---------------------------------------------------------------------- 
 -- Main
@@ -25,7 +26,7 @@ main = do
   setEnv "TASTY_COLOR"          "always"
   setEnv "TASTY_HIDE_SUCCESSES" "false"
 
-  defaultMain tests `catch` 
+  defaultMain LargeTests.tests `catch` 
     (\e -> do 
       if e == ExitSuccess
         then putStrLn "Exited successfully"
@@ -54,72 +55,6 @@ tests = testGroup "Tests"
           , testTakeSellMarketOrder
           , testExecuteSellMarketOrder
           ]
-
-tests' :: TestTree
-tests' = testGroup "Large Order Book Test" 
-          [ testLargeOrderBookSell ]
-
--- ---------------------------------------------------------------------- 
--- Larger Tests
--- ---------------------------------------------------------------------- 
-
-mockOrderBook :: OrderBook 
-mockOrderBook = 
-  -- BUY limit orders
-  let lb1 = mkLimitOrder "pkhb1" 3 90 Buy    -- BUY 7xAsset @ $0.90
-      lb2 = mkLimitOrder "pkhb2" 2 90 Buy    -- BUY 2xAsset @ $0.90
-      lb3 = mkLimitOrder "pkhb3" 5 80 Buy    -- BUY 5xAsset @ $0.80
-      lb4 = mkLimitOrder "pkhb4" 3 80 Buy    -- BUY 3xAsset @ $0.80
-      lb5 = mkLimitOrder "pkhb5" 1 80 Buy    -- BUY 1xAsset @ $0.80
-      lb6 = mkLimitOrder "pkhb6" 7 70 Buy    -- BUY 7xAsset @ $0.70
-      lb7 = mkLimitOrder "pkhb7" 8 70 Buy    -- BUY 8xAsset @ $0.70
-      lb8 = mkLimitOrder "pkhb8" 4 70 Buy    -- BUY 4xAsset @ $0.70
-      lb9 = mkLimitOrder "pkhb9" 9 60 Buy    -- BUY 9xAsset @ $0.60
-
-  -- SELL limit orders
-      ls1 = mkLimitOrder "pkhs1" 5 110 Sell  -- SELL 5xAsset @ $1.10
-      ls2 = mkLimitOrder "pkhs2" 3 110 Sell  -- SELL 3xAsset @ $1.10
-      ls3 = mkLimitOrder "pkhs3" 6 120 Sell  -- SELL 6xAsset @ $1.20
-      ls4 = mkLimitOrder "pkhs4" 2 120 Sell  -- SELL 2xAsset @ $1.20
-      ls5 = mkLimitOrder "pkhs5" 3 120 Sell  -- SELL 3xAsset @ $1.20
-      ls6 = mkLimitOrder "pkhs6" 7 130 Sell  -- SELL 7xAsset @ $1.30
-      ls7 = mkLimitOrder "pkhs7" 9 130 Sell  -- SELL 9xAsset @ $1.30
-      ls8 = mkLimitOrder "pkhs8" 1 130 Sell  -- SELL 1xAsset @ $1.30
-      ls9 = mkLimitOrder "pkhs9" 2 140 Sell  -- SELL 1xAsset @ $1.40
-
-      ob = addLimitOrders 
-            [ lb1, lb2, lb3, lb4, lb5, lb6, lb7, lb8, lb9
-            , ls1, ls2, ls3, ls4, ls5, ls6, ls7, ls8, ls9
-            ] mkEmptyOrderBook
-  in ob
-
-testLargeOrderBookBuy :: TestTree 
-testLargeOrderBookBuy = testCaseSteps "Test large order book" $ \step -> do
-  
-  let mob = mockOrderBook
-      (accAmt, accOs, ob) = takeOrdersForBuy (fromJust $ obCurAsk mob) 7 mob (0, [])
-
-  step ("Order Book:\n" ++ show ob)
-  step ("Order @ 110 Before:\n" ++ showOrdersAtLevel 110 mob)
-  step ("Order @ 110 After:\n" ++ showOrdersAtLevel 110 ob)
-  step ("AccOs:\n" ++ show accOs)
-  step ("AccAmt:\n" ++ show accAmt)
-
-testLargeOrderBookSell :: TestTree 
-testLargeOrderBookSell = testCaseSteps "Test large order book" $ \step -> do
-  
-  let mob = mockOrderBook
-      (accAmt, accOs, ob) = takeOrdersForSell (fromJust $ obCurBid mob) 6 mob (0, [])
-
-  step ("Order Book:\n" ++ show ob)
-  step ("Order @ 90 Before:\n" ++ showOrdersAtLevel 90 mob)
-  step ("Order @ 80 Before:\n" ++ showOrdersAtLevel 80 mob)
-
-  step ("Orders @ 90 After:\n" ++ showOrdersAtLevel 90 ob)
-  step ("Orders @ 80 After:\n" ++ showOrdersAtLevel 80 ob)
-
-  step ("AccOs:\n" ++ renderOrders accOs)
-  step ("AccAmt:\n" ++ show accAmt)
 
 -- ---------------------------------------------------------------------- 
 -- Multi-Step Unit Tests

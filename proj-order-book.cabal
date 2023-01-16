@@ -53,7 +53,7 @@ test-suite tests
     type:
       exitcode-stdio-1.0
     other-modules:
-      -- ExampleTests
+      Spec.LargeOrderBookTests
     hs-source-dirs:
       test
     main-is:
