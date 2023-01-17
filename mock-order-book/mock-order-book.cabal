@@ -1,6 +1,7 @@
-cabal-version:      2.4
-name:               proj-order-book
+cabal-version:      3.0
+name:               mock-order-book
 version:            0.1.0.0
+stability:          experimental
 
 -- A short (one-line) description of the package.
 -- synopsis:
@@ -21,15 +22,17 @@ maintainer:         dane.bulat@gmail.com
 -- category:
 -- extra-source-files: CHANGELOG.md
 
-executable proj-order-book
+executable mock-order-book
     main-is:          Main.hs
     -- other-modules:
     -- other-extensions:
     build-depends:
         base ^>=4.14.3.0
-      , proj-order-book
-    hs-source-dirs:   app
-    default-language: Haskell2010
+      , mock-order-book
+    hs-source-dirs:
+        app
+    default-language: 
+        Haskell2010
 
 library 
     exposed-modules: 
@@ -61,7 +64,7 @@ test-suite tests
       Spec.hs
     build-depends:
       base ^>=4.14.3.0,
-      proj-order-book,
+      mock-order-book,
       containers,
       tasty,
       tasty-hunit,
