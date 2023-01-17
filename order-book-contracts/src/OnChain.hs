@@ -9,6 +9,7 @@
 {-# LANGUAGE ImportQualifiedPost           #-}
 {-# LANGUAGE MultiParamTypeClasses         #-}
 {-# LANGUAGE NoImplicitPrelude             #-}
+{-# LANGUAGE NumericUnderscores            #-}
 {-# LANGUAGE PartialTypeSignatures         #-}
 {-# LANGUAGE RecordWildCards               #-}
 {-# LANGUAGE ScopedTypeVariables           #-}
@@ -70,14 +71,16 @@ data OrderSide = Buy | Sell
     deriving (P.Show, Eq)
 
 data Dat = Dat
-    { traderPkh :: L.PaymentPubKeyHash
+    { traderPkh     :: L.PaymentPubKeyHash
    -- ^ pkh of wallet adding liquidity
-    , amount    :: V.Value 
-   -- ^ amount of liquidity being added to order book
-    , side      :: OrderSide
+    , datAmount     :: Integer
+   -- ^ amount of asset to trade
+    , side          :: OrderSide
    -- ^ whether order is a buy or sell 
-    , atPrice   :: Integer 
+    , tradePrice    :: Integer 
    -- ^ price trader wishes to buy assetA / sell assetB
+    , scriptAddress :: LV2.Address
+   -- ^ used to filter inputs under this script address
     }
 
 PlutusTx.makeIsDataIndexed ''OrderSide [('Buy, 0), ('Sell, 1)]
@@ -90,6 +93,7 @@ PlutusTx.makeIsDataIndexed ''Dat [('Dat, 0)]
 data Redeem 
     = Spend       -- spend utxo to execute a trade
         Integer   -- amount of asset to buy/sell in market order
+        OrderSide -- is trader buying or selling 
     | Cancel      -- cancel this order and refund trader
 
 PlutusTx.makeIsDataIndexed ''Redeem [('Spend, 0), ('Cancel, 1)]
@@ -107,29 +111,37 @@ instance Scripts.ValidatorTypes Trade where
 -- Validator script
 -- ---------------------------------------------------------------------- 
 
+-- TODO: Strategy for handling partially filled orders
+
 {-# INLINEABLE mkValidator #-}
 mkValidator :: Param -> Dat -> Redeem -> LV2.ScriptContext -> Bool 
-mkValidator p dat red ctx = case red of 
-    Spend amountToTrade ->
-      case side dat of 
-        
-        -- This UTXO has deposited USD token (asset 2) and wants to 
-        -- trade ADA (asset 1)
-        Sell ->
-          allInputsOnSide Buy   -- Tx is only consuming Buy UTXOs 
-                                -- Tx total input value
-                                -- Tx total output value (sent to traderPkh + own pkh only)
-                                -- Tx input has exactly enough funds to cover trade
-                                -- Partially filled orders produce an output with remaining value
+mkValidator param dat red ctx = case red of 
+    -- TODO: Reference input to check bid/ask prices
 
-        -- This UTXO has deposited ADA token (asset 1) and wants to 
-        -- trade USD (asset 2)
-        Buy ->
-          allInputsOnSide Sell  -- Tx is only consuming Sell UTXOs 
-                                -- Tx total input value 
-                                -- Tx total output value (sent to traderPkh + own pkh only)
-                                -- Tx input has exactly enough funds to cover trade
-                                -- Partially filled orders produce an output with remaining value
+    Spend amountToTrade redSide ->
+      case redSide of 
+        
+        -- UTXO has deposited AssetA and wants to trade for AssetB
+        -- I.e. Deposited ADA to receive USD
+        Buy -> 
+          -- Tx is only consuming Sell UTXOs under this script address
+          checkAllOwnScriptInputsOnSide Sell &&
+          -- Check the tx matches the amount of assets to trade
+          checkAmountToTrade amountToTrade   &&
+          -- Check traderPkh receives datAmount of AssetB
+          checkAmountSentToTraderAssetB 
+
+
+        -- UTXO has deposited AssetB and wants to trade for AssetA
+        -- I.e. Deposited USD to receive ADA
+        Sell ->
+          -- Tx is only consuming Buy UTXOs under this script address
+          checkAllOwnScriptInputsOnSide Buy &&
+          -- Check the tx matches the amount of assets to trade
+          checkAmountToTrade amountToTrade  &&
+          -- Check traderPkh receives datAmount of AssetA
+          checkAmountSentToTraderAssetA
+
 
     -- Trader wishes to cancel this order and get back their deposit
     Cancel -> 
@@ -145,11 +157,11 @@ mkValidator p dat red ctx = case red of
       Nothing -> traceError "input missing"
 
     signedByTrader :: Bool 
-    signedByTrader =traceIfFalse "Wrong signer" $
+    signedByTrader = traceIfFalse "Wrong signer" $
       LV2C.txSignedBy txInfo $ L.unPaymentPubKeyHash (traderPkh dat)
 
     fullValueReturned :: Bool 
-    fullValueReturned = LV2C.valuePaidTo txInfo pkh ==  ownInput ^. LTXV2.outValue
+    fullValueReturned = LV2C.valuePaidTo txInfo pkh == ownInput ^. LTXV2.outValue
       where pkh = L.unPaymentPubKeyHash (traderPkh dat)
 
     -- ------------------------------------------------------------ 
@@ -157,12 +169,35 @@ mkValidator p dat red ctx = case red of
     getInputs :: [LV2C.TxInInfo]
     getInputs = LV2C.txInfoInputs txInfo 
 
-    allInputsOnSide :: OrderSide -> Bool 
-    allInputsOnSide targetSide = traceIfFalse "Input on wrong side" $
-      foldl (\b txInInfo -> if b then b else
-              let o = LV2.txInInfoResolved txInInfo 
-              in side (getDatum o) == targetSide ) False getInputs
+    checkAllOwnScriptInputsOnSide:: OrderSide -> Bool
+    checkAllOwnScriptInputsOnSide s = not $ foldl (\b i -> if b then b else
+      let txo = LV2.txInInfoResolved i in side (getDatum txo) /= s) False ownScriptInputs 
      
+    ownScriptInputs :: [LV2.TxInInfo]
+    ownScriptInputs = filter pred getInputs
+      where pred i = LV2.txOutAddress (LV2.txInInfoResolved i) == scriptAddress dat
+
+    -- ------------------------------------------------------------ 
+
+    -- Check amount of asset A to be traded
+    -- NOTE: Currently handles EXACT (==) matches (no partially filled orders)
+    checkAmountToTrade :: Integer -> Bool
+    checkAmountToTrade amt = amt == foldl (\acc i -> 
+      acc + datAmount (getDatum (LV2.txInInfoResolved i))) 0 ownScriptInputs
+
+    -- Check correct amount of asset A sent to trader
+    checkAmountSentToTraderAssetA :: Bool 
+    checkAmountSentToTraderAssetA =
+      let expectedAssetA = V.assetClassValue (assetA param) (datAmount dat) 
+      in LV2C.valuePaidTo txInfo 
+          (L.unPaymentPubKeyHash $ traderPkh dat) == expectedAssetA
+
+    -- Check correct amount of asset B sent to trader
+    checkAmountSentToTraderAssetB :: Bool
+    checkAmountSentToTraderAssetB = 
+      let expectedAssetB = V.assetClassValue (assetB param) (datAmount dat * tradePrice dat)
+      in LV2C.valuePaidTo txInfo (L.unPaymentPubKeyHash $ traderPkh dat) == expectedAssetB
+
 -- ---------------------------------------------------------------------- 
 -- Utilities
 -- ---------------------------------------------------------------------- 
