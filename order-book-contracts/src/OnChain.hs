@@ -215,3 +215,23 @@ getDatum txOut = case txOut ^. LTXV2.outDatum of
                                Nothing -> traceError "Datum error"
                                Just d' -> d'
   
+-- ---------------------------------------------------------------------- 
+-- Boilerplate
+-- ---------------------------------------------------------------------- 
+
+validatorInstance :: Param -> V2UtilsTypeScripts.TypedValidator Trade
+validatorInstance = V2UtilsTypeScripts.mkTypedValidatorParam @Trade 
+  $$(PlutusTx.compile [|| mkValidator ||])
+  $$(PlutusTx.compile [|| wrap ||])
+  where
+    wrap = V2UtilsTypeScripts.mkUntypedValidator @Dat @Redeem
+
+scriptValidator :: Param -> LV2.Validator
+scriptValidator = Scripts.validatorScript . validatorInstance
+
+scriptValidatorHash :: Param -> LV2.ValidatorHash
+scriptValidatorHash = V2UtilsTypeScripts.validatorHash . validatorInstance
+
+scriptParamAddress :: Param -> L.Address
+scriptParamAddress = L.scriptHashAddress . scriptValidatorHash
+
