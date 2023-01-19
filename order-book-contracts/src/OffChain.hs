@@ -6,7 +6,6 @@
 {-# LANGUAGE FlexibleContexts              #-}
 {-# LANGUAGE ImportQualifiedPost           #-}
 {-# LANGUAGE MultiParamTypeClasses         #-}
-{-# LANGUAGE NamedFieldPuns                #-}
 {-# LANGUAGE NoImplicitPrelude             #-}
 {-# LANGUAGE PartialTypeSignatures         #-}
 {-# LANGUAGE ScopedTypeVariables           #-}
@@ -48,6 +47,8 @@ import Plutus.Contract                qualified as PC
 
 import OnChain                       qualified 
 import OnChain                       (OrderSide(..), Dat(..), Param(..), scriptParamAddress)
+import TradeNft                      qualified
+import TradeNft                      (PolicyParam(..))
 
 -- ---------------------------------------------------------------------- 
 -- Schema
@@ -69,6 +70,7 @@ data AddLiquidityArgs = AddLiquidityArgs
   , alAmount        :: Integer
   , alSide          :: OrderSide
   , alTradePrice    :: Integer 
+  , alTraderAddr    :: LV2.Address
   } 
   deriving stock (P.Show, Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
@@ -116,24 +118,55 @@ getDatumParamFromArgs args = do
                   , scriptAddress = addr
                   }
 
+--let utxo = LTx.toTxInfoTxOut oref
+
 addLiquidity :: PC.Promise () TradeSchema T.Text ()
 addLiquidity = PC.endpoint @"add-liquidity" $ \args -> do 
-    val          <- getValueToPay args
-    PC.logInfo @P.String $ printf "Value to deposit: %s" (P.show val)
-    (dat, param) <- getDatumParamFromArgs args
-    let
-      lookups = Constraints.typedValidatorLookups (OnChain.validatorInstance param)
-      tx      = Constraints.mustPayToTheScriptWithInlineDatum dat val 
-    -- NOTE: min lovelace added to tx when balancing
-    PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
-    PC.logInfo @P.String $ printf "Deposited to script address"
+    
+    -- Get wallet utxo to provide as redeemer in TradeNft policy
+    utxos <- PC.utxosAt (alTraderAddr args)
+
+    -- Return if no utxos available to spend
+    case Map.keys utxos of 
+      [] -> PC.logError @P.String $ printf "No UTxOs found at wallet address"
+      (oref : _) -> do 
+        
+        -- For output at script address
+        (dat, param) <- getDatumParamFromArgs args
+        val <- getValueToPay args
+
+        -- For minting Trade NFT
+        let policyRedeemer = L.Redeemer $ PlutusTx.toBuiltinData oref
+            tokenName      = calculateTokenNameHash oref
+            policyParam    = PolicyParam 
+              { ppAssetA        = alAssetA args
+              , ppAssetB        = alAssetB args 
+              , ppScriptAddress = OnChain.scriptParamAddress param
+              }
+            nftVal = LV2.singleton (TradeNft.curSymbol policyParam) (LV2.TokenName tokenName) 1
+
+        PC.logInfo @P.String $ printf "Value to deposit: %s" (P.show val)
+        PC.logInfo @P.String $ printf "NFT to deposit: %s" (P.show nftVal)
+
+        -- Construct tx
+        let
+          lookups = Constraints.typedValidatorLookups (OnChain.validatorInstance param)
+               P.<> Constraints.plutusV2MintingPolicy (TradeNft.policy policyParam)
+               P.<> Constraints.unspentOutputs utxos
+           
+          tx      = Constraints.mustPayToTheScriptWithInlineDatum dat (val P.<> nftVal)
+               P.<> Constraints.mustMintValueWithRedeemer policyRedeemer nftVal
+
+        -- NOTE: Min lovelace added to tx when balancing
+        PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
+        PC.logInfo @P.String $ printf "Deposited to script address"
 
 -- ---------------------------------------------------------------------- 
 -- "remove-liquidity" contract endpoint
 -- ---------------------------------------------------------------------- 
 
 removeLiquidity :: PC.Promise () TradeSchema T.Text ()
-removeLiquidity = PC.endpoint @"remove-liquidity" $ \args -> do 
+removeLiquidity = PC.endpoint @"remove-liquidity" $ \_args -> do 
   PC.logInfo @P.String $ printf "Removed liquidity"
 
 -- ---------------------------------------------------------------------- 
@@ -141,7 +174,7 @@ removeLiquidity = PC.endpoint @"remove-liquidity" $ \args -> do
 -- ---------------------------------------------------------------------- 
 
 tradeAssets :: PC.Promise () TradeSchema T.Text ()
-tradeAssets = PC.endpoint @"trade-assets" $ \args -> do 
+tradeAssets = PC.endpoint @"trade-assets" $ \_args -> do 
   PC.logInfo @P.String $ printf "Traded assets"
 
 -- ---------------------------------------------------------------------- 
@@ -159,4 +192,9 @@ contract = do
 
 minLovelace :: V.Value
 minLovelace = Ada.lovelaceValueOf (Ada.getLovelace  L.minAdaTxOut)
+
+calculateTokenNameHash :: LV2.TxOutRef -> BuiltinByteString
+calculateTokenNameHash oref = sha2_256 (consByteString idx txid)
+  where idx  = LV2C.txOutRefIdx oref 
+        txid = LV2.getTxId $ LV2.txOutRefId oref 
 

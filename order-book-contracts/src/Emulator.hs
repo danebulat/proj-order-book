@@ -20,7 +20,7 @@ import Plutus.V1.Ledger.Value     qualified as V
 import Ledger                     qualified as L
 import Ledger.Ada                 qualified as Ada
 import Ledger.TimeSlot            qualified as TimeSlot
-import Wallet.Emulator.Wallet     (Wallet, knownWallet, mockWalletPaymentPubKeyHash)
+import Wallet.Emulator.Wallet     (Wallet, knownWallet, mockWalletPaymentPubKeyHash, mockWalletAddress)
 import Wallet.Emulator.Wallet     qualified as Wallet
 
 import OffChain                   qualified 
@@ -87,6 +87,7 @@ trace1 = do
     , alAmount     = 10 
     , alSide       = Buy 
     , alTradePrice = 2
+    , alTraderAddr = mockWalletAddress (knownWallet 1)
     }
 
   void $ waitNSlots 2
@@ -102,6 +103,7 @@ trace2 = do
     , alAmount     = 10 
     , alSide       = Sell 
     , alTradePrice = 2
+    , alTraderAddr = mockWalletAddress (knownWallet 1)
     }
 
   void $ waitNSlots 2
@@ -111,4 +113,4 @@ trace2 = do
 -- ---------------------------------------------------------------------- 
 
 test :: IO ()
-test = Emulator.runEmulatorTraceIO' def emCfg trace1
+test = Emulator.runEmulatorTraceIO' def emCfg trace2

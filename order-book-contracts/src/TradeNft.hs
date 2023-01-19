@@ -82,9 +82,9 @@ mkPolicy param utxo ctx = case mintedValue of
     validateMint tn amount = 
          amount == 1 
       && checkForOverflow
-      && validateTokenName tn
-      && hasUTxO
       && checkScriptOutputValue
+      && hasUTxO
+      && validateTokenName tn
       || amount == (-1)
     
     -- Token name
@@ -112,37 +112,38 @@ mkPolicy param utxo ctx = case mintedValue of
     getScriptUTxO :: LV2C.TxOut
     getScriptUTxO = 
       let targetAddr  = ppScriptAddress param
-          txOuts      = LV2C.txInInfoResolved <$> LV2C.txInfoInputs txInfo
+          txOuts      = LV2C.txInfoOutputs txInfo
           scriptOuts  = filter (\txOut -> LV2C.txOutAddress txOut == targetAddr) txOuts
       in case scriptOuts of 
         [o]    -> o
         _other -> traceError "Expecting only one output to script address"
 
-    --
-    -- TODO: Check including minLovelace is the correct calculation
-    --
+    -- Check value in the single script output
     checkScriptOutputValue :: Bool 
     checkScriptOutputValue = case side scriptOutDat of 
-        -- Check script output contains AssetB tokens and NFT token only (+ min lovelace)
+        -- Check script output contains AssetB, TradeNFT, and Lovelace only
         Buy -> 
-          let numTokenB = V.assetClassValueOf scriptOutVal (ppAssetB param)
-              targetVal = targetNftVal 
+          let numTokenB   = V.assetClassValueOf scriptOutVal (ppAssetB param)
+              numLovelace = V.assetClassValueOf scriptOutVal adaClass
+              targetVal   = targetNftVal 
                      P.<> V.assetClassValue (ppAssetB param) numTokenB
-                     P.<> minLovelace
-          in targetVal == scriptOutVal 
+                     P.<> V.assetClassValue adaClass numLovelace
+          in traceIfFalse "Wrong script out val (Buy)" (targetVal == scriptOutVal)
 
-        -- Check script output contains AssetA tokens and NFT token only (+ min lovelace)
+        -- Check script output contains AssetA, TradeNFT, and Lovelace only
         Sell -> 
-          let numTokenA = V.assetClassValueOf scriptOutVal (ppAssetA param)
-              targetVal = targetNftVal 
+          let numTokenA  = V.assetClassValueOf scriptOutVal (ppAssetA param)
+              numLovelace = V.assetClassValueOf scriptOutVal adaClass
+              targetVal   = targetNftVal 
                      P.<> V.assetClassValue (ppAssetA param) numTokenA
-                     P.<> minLovelace
-          in targetVal == scriptOutVal
+                     P.<> V.assetClassValue adaClass numLovelace
+          in traceIfFalse "Wrong script out val (Sell)" (targetVal == scriptOutVal)
       where 
         scriptOut    = getScriptUTxO
         scriptOutDat = getDatum scriptOut
         scriptOutVal = LV2C.txOutValue scriptOut
         targetNftVal = V.assetClassValue ownAssetClass 1
+        adaClass     = V.AssetClass (Ada.adaSymbol, Ada.adaToken)
 
 -- ---------------------------------------------------------------------- 
 -- Utilities
