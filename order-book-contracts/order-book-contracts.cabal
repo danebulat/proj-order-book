@@ -47,6 +47,9 @@ library
       , Emulator
       , FreePolicy
       , TradeNft
+      , OrderBook.Matching
+      , OrderBook.Model
+      , OrderBook.Utils
 
     -- Plutus dependencies
     build-depends:

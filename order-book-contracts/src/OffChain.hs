@@ -99,27 +99,6 @@ data TradeAssetsArgs = TradeAssetsArgs
 -- "add-liquidity" contract endpoint
 -- ---------------------------------------------------------------------- 
 
-getValueToPay :: AddLiquidityArgs -> PC.Contract () TradeSchema T.Text V.Value
-getValueToPay args = case alSide args of
-  Buy  -> return $ V.assetClassValue (alAssetB args) (alAmount args * alTradePrice args)
-  Sell -> return $ V.assetClassValue (alAssetA args) (alAmount args) 
-
-getDatumParamFromArgs :: AddLiquidityArgs -> PC.Contract () TradeSchema T.Text (Dat, Param)
-getDatumParamFromArgs args = do
-    pkh <- PC.ownFirstPaymentPubKeyHash
-    return (dat pkh, param) 
-  where 
-    param   = Param { assetA = alAssetA args, assetB = alAssetB args }
-    addr    = OnChain.scriptParamAddress param
-    dat pkh = Dat { traderPkh     = pkh
-                  , datAmount     = alAmount args
-                  , side          = alSide args
-                  , tradePrice    = alTradePrice args 
-                  , scriptAddress = addr
-                  }
-
---let utxo = LTx.toTxInfoTxOut oref
-
 addLiquidity :: PC.Promise () TradeSchema T.Text ()
 addLiquidity = PC.endpoint @"add-liquidity" $ \args -> do 
     
@@ -159,7 +138,30 @@ addLiquidity = PC.endpoint @"add-liquidity" $ \args -> do
 
         -- NOTE: Min lovelace added to tx when balancing
         PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
+        
+        -- TODO: Add NFT to order book along with order details
+        -- TODO: Send order book outside of functions
+
         PC.logInfo @P.String $ printf "Deposited to script address"
+
+getValueToPay :: AddLiquidityArgs -> PC.Contract () TradeSchema T.Text V.Value
+getValueToPay args = case alSide args of
+  Buy  -> return $ V.assetClassValue (alAssetB args) (alAmount args * alTradePrice args)
+  Sell -> return $ V.assetClassValue (alAssetA args) (alAmount args) 
+
+getDatumParamFromArgs :: AddLiquidityArgs -> PC.Contract () TradeSchema T.Text (Dat, Param)
+getDatumParamFromArgs args = do
+    pkh <- PC.ownFirstPaymentPubKeyHash
+    return (dat pkh, param) 
+  where 
+    param   = Param { assetA = alAssetA args, assetB = alAssetB args }
+    addr    = OnChain.scriptParamAddress param
+    dat pkh = Dat { traderPkh     = pkh
+                  , datAmount     = alAmount args
+                  , side          = alSide args
+                  , tradePrice    = alTradePrice args 
+                  , scriptAddress = addr
+                  }
 
 -- ---------------------------------------------------------------------- 
 -- "remove-liquidity" contract endpoint
