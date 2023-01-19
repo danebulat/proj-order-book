@@ -47,7 +47,7 @@ import Plutus.Contract                (type (.\/))
 import Plutus.Contract                qualified as PC 
 
 import OnChain                       qualified 
-import OnChain                       (OrderSide(..), Dat(..), Param(..))
+import OnChain                       (OrderSide(..), Dat(..), Param(..), scriptParamAddress)
 
 -- ---------------------------------------------------------------------- 
 -- Schema
@@ -64,11 +64,9 @@ type TradeSchema =
 data AddLiquidityArgs = AddLiquidityArgs
   { alAssetA        :: L.AssetClass 
   , alAssetB        :: L.AssetClass 
-  , alTraderPkh     :: L.PaymentPubKeyHash 
   , alAmount        :: Integer
   , alSide          :: OrderSide
   , alTradePrice    :: Integer 
-  , alScriptAddress :: LV2.Address
   } 
   deriving stock (P.Show, Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
@@ -103,12 +101,14 @@ getDatumParamFromArgs args = do
 addLiquidity :: PC.Promise () TradeSchema T.Text ()
 addLiquidity = PC.endpoint @"add-liquidity" $ \args -> do 
     val          <- getValueToPay args
+    PC.logInfo @P.String $ printf "Value to deposit: %s" (P.show val)
     (dat, param) <- getDatumParamFromArgs args
     let
       lookups = Constraints.typedValidatorLookups (OnChain.validatorInstance param)
       tx      = Constraints.mustPayToTheScriptWithInlineDatum dat val 
+    -- NOTE: min lovelace added to tx when balancing
     PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
-    PC.logInfo @P.String $ printf "Depositing to script address"
+    PC.logInfo @P.String $ printf "Deposited to script address"
 
 -- ---------------------------------------------------------------------- 
 -- Top-level contract entry point
