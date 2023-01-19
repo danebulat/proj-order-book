@@ -42,7 +42,8 @@ library
     import: lang
 
     exposed-modules:
-      OnChain
+        OnChain
+      , OffChain
 
     -- Plutus dependencies
     build-depends:

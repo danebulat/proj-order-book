@@ -49,9 +49,9 @@ import Playground.Contract       (ToSchema)
 -- ---------------------------------------------------------------------- 
 
 data Param = Param 
-    { matcherPkh :: L.PaymentPubKeyHash
+    { --matcherPkh :: L.PaymentPubKeyHash
   -- ^ pkh of matcher "manager" wallet
-    , assetA     :: L.AssetClass 
+      assetA     :: L.AssetClass 
   -- ^ first asset in trading pair
     , assetB     :: L.AssetClass 
   -- ^ second asset in trading pair
@@ -68,7 +68,13 @@ PlutusTx.makeLift ''Param
 
 -- TODO: Import order book types
 data OrderSide = Buy | Sell
-    deriving (P.Show, Eq)
+    deriving stock (P.Show, Generic)
+    deriving anyclass (ToJSON, FromJSON, ToSchema)
+
+instance Eq OrderSide where 
+  Buy  == Buy  = True
+  Sell == Sell = True 
+  _    == _    = False
 
 data Dat = Dat
     { traderPkh     :: L.PaymentPubKeyHash
@@ -174,8 +180,8 @@ mkValidator param dat red ctx = case red of
       let txo = LV2.txInInfoResolved i in side (getDatum txo) /= s) False ownScriptInputs 
      
     ownScriptInputs :: [LV2.TxInInfo]
-    ownScriptInputs = filter pred getInputs
-      where pred i = LV2.txOutAddress (LV2.txInInfoResolved i) == scriptAddress dat
+    ownScriptInputs = filter pred' getInputs
+      where pred' i = LV2.txOutAddress (LV2.txInInfoResolved i) == scriptAddress dat
 
     -- ------------------------------------------------------------ 
 
