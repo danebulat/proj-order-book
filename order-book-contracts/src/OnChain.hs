@@ -41,7 +41,6 @@ import Plutus.Script.Utils.V2.Scripts                  (scriptCurrencySymbol)
 
 import Ledger                    qualified as L
 import Ledger.Ada                qualified as Ada
-import Ledger.Address            qualified as LV1Address
 import Playground.Contract       (ToSchema)
 
 -- ---------------------------------------------------------------------- 
@@ -207,6 +206,7 @@ mkValidator param dat red ctx = case red of
 -- ---------------------------------------------------------------------- 
 -- Utilities
 -- ---------------------------------------------------------------------- 
+-- TODO: Put in utils module
 
 {-# INLINABLE minLovelace #-}
 minLovelace :: V.Value

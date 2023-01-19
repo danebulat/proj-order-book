@@ -46,6 +46,7 @@ library
       , OffChain
       , Emulator
       , FreePolicy
+      , TradeNft
 
     -- Plutus dependencies
     build-depends:

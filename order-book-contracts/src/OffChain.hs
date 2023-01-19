@@ -54,7 +54,9 @@ import OnChain                       (OrderSide(..), Dat(..), Param(..), scriptP
 -- ---------------------------------------------------------------------- 
 
 type TradeSchema =
-      PC.Endpoint "add-liquidity" AddLiquidityArgs
+        PC.Endpoint "add-liquidity"    AddLiquidityArgs
+    .\/ PC.Endpoint "remove-liquidity" RemoveLiquidityArgs
+    .\/ PC.Endpoint "trade-assets"     TradeAssetsArgs
 
 -- ---------------------------------------------------------------------- 
 -- Data types for contract arguments
@@ -68,6 +70,22 @@ data AddLiquidityArgs = AddLiquidityArgs
   , alSide          :: OrderSide
   , alTradePrice    :: Integer 
   } 
+  deriving stock (P.Show, Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
+data RemoveLiquidityArgs = RemoveLiquidityArgs
+  { rlAssetA        :: L.AssetClass 
+  , rlAssetB        :: L.AssetClass 
+  }
+  deriving stock (P.Show, Generic)
+  deriving anyclass (ToJSON, FromJSON, ToSchema)
+
+data TradeAssetsArgs = TradeAssetsArgs 
+  { taAssetA :: L.AssetClass 
+  , taAssetB :: L.AssetClass
+  , taAmount :: Integer       -- Amount of asset to buy/sell
+  , taSide   :: OrderSide     -- Side of currency pair to trade (buy or sell)
+  }
   deriving stock (P.Show, Generic)
   deriving anyclass (ToJSON, FromJSON, ToSchema)
 
@@ -109,6 +127,22 @@ addLiquidity = PC.endpoint @"add-liquidity" $ \args -> do
     -- NOTE: min lovelace added to tx when balancing
     PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
     PC.logInfo @P.String $ printf "Deposited to script address"
+
+-- ---------------------------------------------------------------------- 
+-- "remove-liquidity" contract endpoint
+-- ---------------------------------------------------------------------- 
+
+removeLiquidity :: PC.Promise () TradeSchema T.Text ()
+removeLiquidity = PC.endpoint @"remove-liquidity" $ \args -> do 
+  PC.logInfo @P.String $ printf "Removed liquidity"
+
+-- ---------------------------------------------------------------------- 
+-- "trade-assets" contract endpoint
+-- ---------------------------------------------------------------------- 
+
+tradeAssets :: PC.Promise () TradeSchema T.Text ()
+tradeAssets = PC.endpoint @"trade-assets" $ \args -> do 
+  PC.logInfo @P.String $ printf "Traded assets"
 
 -- ---------------------------------------------------------------------- 
 -- Top-level contract entry point
