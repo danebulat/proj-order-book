@@ -85,6 +85,7 @@ mkPolicy param utxo ctx = case mintedValue of
       && validateTokenName tn
       && hasUTxO
       && checkScriptOutputValue
+      || amount == (-1)
     
     -- Token name
     calculateTokenNameHash :: BuiltinByteString
@@ -160,3 +161,22 @@ getDatum txOut = case txOut ^. LTXV2.outDatum of
   LTXV2.OutputDatum d     -> case PlutusTx.fromBuiltinData $ LV2.getDatum d of 
                                Nothing -> traceError "Datum error"
                                Just d' -> d'
+
+-- ---------------------------------------------------------------------- 
+-- Boilerplate
+-- ---------------------------------------------------------------------- 
+
+policy :: PolicyParam -> LV2.MintingPolicy
+policy param = LV2.mkMintingPolicyScript $
+    $$(PlutusTx.compile [|| Scripts.mkUntypedMintingPolicy . mkPolicy ||])
+    `PlutusTx.applyCode` PlutusTx.liftCode param
+
+curSymbol :: PolicyParam -> LV2.CurrencySymbol
+curSymbol = UtilsScriptsV2.scriptCurrencySymbol . policy
+
+policyScript :: PolicyParam -> LV2.Script
+policyScript = LV2.unMintingPolicyScript . policy
+
+policyValidator :: PolicyParam -> LV2.Validator 
+policyValidator = LV2.Validator . policyScript
+
