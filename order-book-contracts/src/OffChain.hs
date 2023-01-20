@@ -14,7 +14,7 @@ module OffChain where
 
 import Control.Lens                   ((^.))
 import Data.Aeson                     (FromJSON, ToJSON)
---import Data.Map                       (Map)
+import Data.Map                       (Map)
 import Data.Map                       qualified as Map 
 import Data.Maybe                     (fromJust)
 import Data.Text                      qualified as T
@@ -54,6 +54,8 @@ import OrderBook.Utils                (addLimitOrders, mkLimitOrder)
 addLiquidity :: PC.Promise [OrderBook] TradeSchema T.Text ()
 addLiquidity = PC.endpoint @"add-liquidity" $ \args -> do 
     
+    -- TODO: Check trade price doen't exceed bid/ask 
+
     -- Get wallet utxo to provide as redeemer in TradeNft policy
     utxos <- PC.utxosAt (alTraderAddr args)
     pkh   <- PC.ownFirstPaymentPubKeyHash
@@ -144,29 +146,17 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
     Buy -> do
       PC.logInfo @P.String $ printf "ENTERING BUY MARKET ORDER" 
 
-      let targetAmt      = taAmount args
-          ob             = taOrderBook args
-          curAsk         = fromJust $ obCurAsk ob
-          validatorParam = OnChain.Param (taAssetA args) (taAssetB args)
-          param          = Param { assetA = taAssetA args, assetB = taAssetB args }
+      let targetAmt = taAmount args
+          orderBook = taOrderBook args
+          param     = Param { assetA = taAssetA args, assetB = taAssetB args }
 
-      -- Take orders from order book to consume
-      let (_amtToConsume, os, newOb) = Matching.takeOrdersForBuy curAsk targetAmt ob (0,[])
-
-      -- Get NFTs from extracted orders
-          orderNfts = getNftFromOrder <$> os
-
-      -- Retrieve corresponding on-chain UTxOs (Map TxOutRef DecoratedTxOut)
-      utxosAtScript <- PC.utxosAt (OnChain.scriptParamAddress validatorParam)
-      
-      -- Filter utxos holding the NFTs
-      let utxos = Map.filter (\decTxOut -> 
-                    let v = decTxOut ^. LTX.decoratedTxOutValue 
-                    in foldl (\b nft -> if b then b else V.assetClassValueOf v nft == 1) False orderNfts) 
-                  utxosAtScript 
-        
-          -- Get data from filtered UTxOs (pkh, val, amount, oref, tradePrice)
-          utxoData = foldl (\acc (oref, decTxOut) ->
+      -- Get order NFTs and script outputs to spend 
+      (orderNfts, newOb) <- takeOrdersForBuy targetAmt orderBook 
+      utxosAtScript      <- PC.utxosAt (OnChain.scriptParamAddress param)
+      utxos              <- filterNftUTxOs utxosAtScript orderNfts
+       
+      -- Get data from filtered UTxOs (pkh, val, amount, oref, tradePrice)
+      let utxoData = foldl (\acc (oref, decTxOut) ->
                       let v  = decTxOut ^. LTX.decoratedTxOutValue
                           (_, dq) = LTX._decoratedTxOutScriptDatum decTxOut 
                           in case dq of 
@@ -181,9 +171,8 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
                                 Nothing -> acc
                             _other -> acc) [] (Map.toList utxos)
           
-          lookups = 
-                   Constraints.unspentOutputs utxos
-              P.<> Constraints.typedValidatorLookups (OnChain.validatorInstance param)
+          lookups = Constraints.unspentOutputs utxos
+               P.<> Constraints.typedValidatorLookups (OnChain.validatorInstance param)
            
           tx =   -- Spend script outputs with correct redeemer 
                  mconcat [ Constraints.mustSpendScriptOutput oref 
@@ -204,7 +193,6 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
       PC.logInfo @P.String $ printf "BUY MARKET ORDER" 
       PC.logInfo @P.String $ printf "UTXOS TO CONSUME:\n%s" (P.show utxos) 
       PC.logInfo @P.String $ printf "TARGET AMOUNT: %s"     (P.show targetAmt) 
-      PC.logInfo @P.String $ printf "CURRENT ASK: %s"       (P.show curAsk) 
 
       -- Submit transaction
       PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
@@ -214,6 +202,26 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
 
     Sell -> do 
       PC.logInfo @P.String $ printf "SELL MARKET ORDER"
+
+-- Take orders from order book for BUY market order
+-- Return associated NFTs and updated order book
+takeOrdersForBuy 
+  :: Integer -> OrderBook 
+  -> PC.Contract [OrderBook] TradeSchema T.Text ([V.AssetClass], OrderBook)
+takeOrdersForBuy targetAmt ob = do
+  let curAsk         = fromJust $ obCurAsk ob
+      (_, os, newOb) = Matching.takeOrdersForBuy curAsk targetAmt ob (0,[])
+  return (getNftFromOrder <$> os, newOb)
+
+-- Return outputs that contain one of the passed NFTs
+filterNftUTxOs 
+  :: Map LTX.TxOutRef LTX.DecoratedTxOut -> [V.AssetClass] 
+  -> PC.Contract [OrderBook] TradeSchema T.Text (Map LTX.TxOutRef LTX.DecoratedTxOut)
+filterNftUTxOs utxos nfts = return $ 
+  Map.filter (\decTxOut -> 
+        let v = decTxOut ^. LTX.decoratedTxOutValue 
+        in foldl (\b nft -> if b then b else V.assetClassValueOf v nft == 1) False nfts) 
+      utxos 
 
 -- ---------------------------------------------------------------------- 
 -- Top-level contract entry point
