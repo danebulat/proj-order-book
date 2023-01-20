@@ -114,6 +114,8 @@ mkValidator param dat red ctx = case red of
 
     Spend amountToTrade redSide ->
       case redSide of 
+
+        -- TODO: Check utxo has NFT 
         
         -- UTXO has deposited AssetA and wants to trade for AssetB
         -- I.e. Deposited ADA to receive USD

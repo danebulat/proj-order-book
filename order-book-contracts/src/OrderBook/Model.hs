@@ -86,7 +86,7 @@ instance Default OrderBook where
     { obLimitOrders  = Map.empty
     , obCurBid       = Nothing
     , obCurAsk       = Nothing
-    , obIncrement    = 10
+    , obIncrement    = 1
     }
 
 -- ----------------------------------------------------------------------   

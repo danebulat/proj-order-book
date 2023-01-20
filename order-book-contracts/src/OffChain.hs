@@ -41,6 +41,7 @@ import TradeNft                       qualified
 import TradeNft                       (PolicyParam(..))
 import OrderBook.Model                (OrderSide(..), OrderBook(..), Order(..), OrderType(..))
 import OrderBook.Matching             qualified as Matching
+import OrderBook.Utils                (addLimitOrders, mkLimitOrder)
 
 -- ====================================================================== 
 -- Contract endpoins
@@ -50,11 +51,12 @@ import OrderBook.Matching             qualified as Matching
 -- "add-liquidity" contract endpoint
 -- ---------------------------------------------------------------------- 
 
-addLiquidity :: PC.Promise () TradeSchema T.Text ()
+addLiquidity :: PC.Promise [OrderBook] TradeSchema T.Text ()
 addLiquidity = PC.endpoint @"add-liquidity" $ \args -> do 
     
     -- Get wallet utxo to provide as redeemer in TradeNft policy
     utxos <- PC.utxosAt (alTraderAddr args)
+    pkh   <- PC.ownFirstPaymentPubKeyHash
 
     -- Return if no utxos available to spend
     case Map.keys utxos of 
@@ -74,6 +76,7 @@ addLiquidity = PC.endpoint @"add-liquidity" $ \args -> do
               , ppScriptAddress = OnChain.scriptParamAddress param
               }
             nftVal = LV2.singleton (TradeNft.curSymbol policyParam) (LV2.TokenName tokenName) 1
+            nftAssetClass = V.assetClass (TradeNft.curSymbol policyParam) (LV2.TokenName tokenName)
 
         PC.logInfo @P.String $ printf "Value to deposit: %s" (P.show val)
         PC.logInfo @P.String $ printf "NFT to deposit: %s" (P.show nftVal)
@@ -90,17 +93,23 @@ addLiquidity = PC.endpoint @"add-liquidity" $ \args -> do
         -- NOTE: Min lovelace added to tx when balancing
         PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
         
-        -- TODO: Add NFT to order book along with order details
-        -- TODO: Send order book outside of functions
+        -- Add NFT to order book along with order details
+        let ob    = alOrderBook args
+            order = mkLimitOrder (alTradePrice args) nftAssetClass pkh (alAmount args) (alSide args)
+            newOb = addLimitOrders [order] ob 
 
-        PC.logInfo @P.String $ printf "Deposited to script address"
+        -- Send new order book outside contract monad
+        PC.tell [newOb]
 
-getValueToPay :: AddLiquidityArgs -> PC.Contract () TradeSchema T.Text V.Value
+        -- Logging
+        PC.logInfo @P.String $ printf "DEPOSITED TO SCRIPT ADDRESS"
+
+getValueToPay :: AddLiquidityArgs -> PC.Contract [OrderBook] TradeSchema T.Text V.Value
 getValueToPay args = case alSide args of
   Buy  -> return $ V.assetClassValue (alAssetB args) (alAmount args * alTradePrice args)
   Sell -> return $ V.assetClassValue (alAssetA args) (alAmount args) 
 
-getDatumParamFromArgs :: AddLiquidityArgs -> PC.Contract () TradeSchema T.Text (Dat, Param)
+getDatumParamFromArgs :: AddLiquidityArgs -> PC.Contract [OrderBook] TradeSchema T.Text (Dat, Param)
 getDatumParamFromArgs args = do
     pkh <- PC.ownFirstPaymentPubKeyHash
     return (dat pkh, param) 
@@ -118,7 +127,7 @@ getDatumParamFromArgs args = do
 -- "remove-liquidity" contract endpoint
 -- ---------------------------------------------------------------------- 
 
-removeLiquidity :: PC.Promise () TradeSchema T.Text ()
+removeLiquidity :: PC.Promise [OrderBook] TradeSchema T.Text ()
 removeLiquidity = PC.endpoint @"remove-liquidity" $ \_args -> do 
   PC.logInfo @P.String $ printf "Removed liquidity"
 
@@ -126,7 +135,7 @@ removeLiquidity = PC.endpoint @"remove-liquidity" $ \_args -> do
 -- "trade-assets" contract endpoint
 -- ---------------------------------------------------------------------- 
 
-tradeAssets :: PC.Promise () TradeSchema T.Text ()
+tradeAssets :: PC.Promise [OrderBook] TradeSchema T.Text ()
 tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
   ownPkh <- PC.ownFirstPaymentPubKeyHash
 
@@ -139,25 +148,24 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
           param          = Param { assetA = taAssetA args, assetB = taAssetB args }
 
       -- Take orders from order book to consume
-      let (_amtToConsume, os, _newOb) = Matching.takeOrdersForBuy curAsk targetAmt ob (0,[])
+      let (_amtToConsume, os, newOb) = Matching.takeOrdersForBuy curAsk targetAmt ob (0,[])
 
       -- Get NFTs from extracted orders
           orderNfts = getNftFromOrder <$> os
 
-      -- Retrieve corresponding on-chain UTxOs
-      -- utxosAt :: Address -> Map TxOutRef DecoratedTxOut
+      -- Retrieve corresponding on-chain UTxOs (Map TxOutRef DecoratedTxOut)
       utxosAtScript <- PC.utxosAt (OnChain.scriptParamAddress validatorParam)
       
       -- Filter utxos holding the NFTs
-      let _utxos = Map.filter (\decTxOut -> 
+      let utxos = Map.filter (\decTxOut -> 
                     let v = decTxOut ^. LTX.decoratedTxOutValue 
                     in foldl (\b nft -> if b then b else V.assetClassValueOf v nft == 1) False orderNfts) 
                   utxosAtScript 
         
           -- Get data from filtered UTxOs (pkh, val, amount, oref, tradePrice)
-          _utxoData = foldl (\acc (oref, decTxOut) ->
+          utxoData = foldl (\acc (oref, decTxOut) ->
                       let v  = decTxOut ^. LTX.decoratedTxOutValue
-                          (dh, dq) = LTX._decoratedTxOutScriptDatum decTxOut 
+                          (_, dq) = LTX._decoratedTxOutScriptDatum decTxOut 
                           in case dq of 
                             LTX.DatumInline d -> 
                               let md = PlutusTx.fromBuiltinData (LV2.getDatum d) 
@@ -168,38 +176,47 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
                                                   , oref                     -- outref
                                                   , OnChain.tradePrice d')]  -- price to trade
                                 Nothing -> acc
-                            _other -> acc) [] (Map.toList _utxos)
+                            _other -> acc) [] (Map.toList utxos)
           
-          _lookups = 
-                   Constraints.unspentOutputs _utxos
+          lookups = 
+                   Constraints.unspentOutputs utxos
               P.<> Constraints.typedValidatorLookups (OnChain.validatorInstance param)
-          
-          _tx =    -- Spend script outputs with correct redeemer 
-                   [ Constraints.mustSpendScriptOutput oref 
-                       (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Buy)  
-                     | (pkh, v, amt, oref, tp) <- _utxoData 
-                   ]
-                   -- Pay AssetB to each trader's pkh according to their trade 
-              P.<> [ Constraints.mustPayToPubKey pkh' 
-                       (V.assetClassValue (taAssetB args) (amt * tp))
-                     | (pkh', v, amt, oref, tp) <- _utxoData 
-                   ]
-                   -- Pay AssetA to own pkh (consume value of taken utxos)
-                   -- NOTE: Min Lovelace also goes to own pkh
-              P.<> [ Constraints.mustPayToPubKey ownPkh v 
-                     | (pkh', v, amt, oref, tp) <- _utxoData 
-                   ]
+           
+          tx =   -- Spend script outputs with correct redeemer 
+                 mconcat [ Constraints.mustSpendScriptOutput oref 
+                             (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Buy)  
+                            | (_, _, amt, oref, _) <- utxoData 
+                         ]
+                 -- Pay AssetB to each trader's pkh according to their trade 
+            P.<> mconcat [ Constraints.mustPayToPubKey pkh 
+                             (V.assetClassValue (taAssetB args) (amt * tp))
+                            | (pkh, _, amt, _, tp) <- utxoData 
+                         ]
+                 -- Pay AssetA to own pkh (consume value of taken utxos)
+                 -- NOTE: Min Lovelace also goes to own pkh
+            P.<> mconcat [ Constraints.mustPayToPubKey ownPkh v 
+                            | (_, v, _, _, _) <- utxoData 
+                         ]
 
-      PC.logInfo @P.String $ printf "BUY market order (%d of AssetA)" (taAmount args)
+      PC.logInfo @P.String $ printf "BUY MARKET ORDER" 
+      PC.logInfo @P.String $ printf "UTXOS TO CONSUME:\n%s" (P.show utxos) 
+      PC.logInfo @P.String $ printf "TARGET AMOUNT: %s"     (P.show targetAmt) 
+      PC.logInfo @P.String $ printf "CURRENT ASK: %s"       (P.show curAsk) 
+
+      -- Submit transaction
+      PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
+
+      -- Send new order book out of contract monad
+      PC.tell [newOb]
 
     Sell -> do 
-      PC.logInfo @P.String $ printf "SELL market order (%d of AssetA)" (taAmount args)
+      PC.logInfo @P.String $ printf "SELL MARKET ORDER"
 
 -- ---------------------------------------------------------------------- 
 -- Top-level contract entry point
 -- ---------------------------------------------------------------------- 
 
-contract :: PC.Contract () TradeSchema T.Text ()
+contract :: PC.Contract [OrderBook] TradeSchema T.Text ()
 contract = do 
   PC.logInfo @P.String "Waiting for add-liquidity endpoint"
   PC.selectList [addLiquidity] >> contract
@@ -240,6 +257,7 @@ data AddLiquidityArgs = AddLiquidityArgs
   , alSide          :: OrderSide
   , alTradePrice    :: Integer 
   , alTraderAddr    :: LV2.Address
+  , alOrderBook     :: OrderBook
   } 
   deriving stock (P.Show, Generic)
   deriving anyclass (ToJSON, FromJSON)
