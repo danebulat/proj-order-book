@@ -160,7 +160,7 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
 
       -- Construct transaction 
       let lookups = Constraints.unspentOutputs utxos
-               P.<> Constraints.typedValidatorLookups (OnChain.validatorInstance param)
+                 <> Constraints.typedValidatorLookups (OnChain.validatorInstance param)
            
           tx = -- Spend script outputs with correct redeemer 
                mconcat [ Constraints.mustSpendScriptOutput oref 
@@ -180,7 +180,40 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
       PC.tell [newOb]
 
     Sell -> do 
-      PC.logInfo @P.String $ printf "SELL MARKET ORDER"
+      PC.logInfo @P.String $ printf "ENTERING SELL MARKET ORDER"
+
+      let targetAmt = taAmount args
+          orderBook = taOrderBook args
+          param     = Param { assetA = taAssetA args, assetB = taAssetB args }
+
+      -- Get order NFTs and script outputs to spend
+      (orderNfts, newOb) <- takeOrdersForSell targetAmt orderBook
+      utxosAtScript      <- PC.utxosAt (OnChain.scriptParamAddress param)
+      utxos              <- filterNftUTxOs utxosAtScript orderNfts
+      
+      -- Get data from filtered UTxOs (pkh, val, amount, oref, tradePrice)
+      utxoData <- getUTxOData utxos
+
+      -- Construct transaction
+      let lookups = Constraints.unspentOutputs utxos 
+                 <> Constraints.typedValidatorLookups (OnChain.validatorInstance param)
+
+          tx = -- Spend script outputs with correct redeemer 
+               mconcat [ Constraints.mustSpendScriptOutput oref 
+                           (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Sell)  
+                         | (_, _, amt, oref, _) <- utxoData ]
+              -- Pay AssetA to each trader's pkh according to their trade 
+            <> mconcat [ Constraints.mustPayToPubKey pkh 
+                             (V.assetClassValue (taAssetA args) amt)
+                           | (pkh, _, amt, _, _) <- utxoData ]
+             -- Pay AssetB to own pkh (consume value of taken utxos)
+            <> mconcat [ Constraints.mustPayToPubKey ownPkh v 
+                           | (_, v, _, _, _) <- utxoData ]
+               -- NOTE: Min Lovelace also goes to own pkh
+
+      -- Submit transaction and tell new order book
+      PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
+      PC.tell [newOb]
 
 -- Take orders from order book for BUY market order
 -- Return associated NFTs and updated order book
@@ -220,6 +253,16 @@ getUTxOData utxos = return $ foldl (\acc (oref, decTxOut) ->
                           , OnChain.tradePrice d')]  -- price to trade
         Nothing -> acc
     _other -> acc) [] (Map.toList utxos)
+
+-- Take orders from order book for SELL market order
+-- Return associated NFTs and updated order book
+takeOrdersForSell 
+  :: Integer -> OrderBook 
+  -> PC.Contract [OrderBook] TradeSchema T.Text ([V.AssetClass], OrderBook)
+takeOrdersForSell targetAmt ob = do 
+  let curBid = fromJust $ obCurBid ob
+      (_, os, newOb) = Matching.takeOrdersForSell curBid targetAmt ob (0,[])
+  return (getNftFromOrder <$> os, newOb)
 
 -- ---------------------------------------------------------------------- 
 -- Top-level contract entry point
