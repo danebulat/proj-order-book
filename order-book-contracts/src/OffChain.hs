@@ -22,11 +22,12 @@ import GHC.Generics                   (Generic)
 import Text.Printf                    (printf)
 
 import PlutusTx                       qualified
-import PlutusTx.Prelude
+import PlutusTx.Prelude               hiding ((<>))
 import Plutus.V2.Ledger.Api           qualified as LV2
 import Plutus.V2.Ledger.Contexts      qualified as LV2C
 import Plutus.V1.Ledger.Value         qualified as V
 import Prelude                        qualified as P 
+import Prelude                        ((<>))
 
 import Ledger                         qualified as L
 import Ledger.Ada                     qualified as Ada
@@ -139,7 +140,6 @@ removeLiquidity = PC.endpoint @"remove-liquidity" $ \_args -> do
 
 tradeAssets :: PC.Promise [OrderBook] TradeSchema T.Text ()
 tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
-  PC.logInfo @P.String $ printf "ENTERING TRADE ASSETS" 
   ownPkh <- PC.ownFirstPaymentPubKeyHash
 
   case taSide args of
@@ -156,48 +156,27 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
       utxos              <- filterNftUTxOs utxosAtScript orderNfts
        
       -- Get data from filtered UTxOs (pkh, val, amount, oref, tradePrice)
-      let utxoData = foldl (\acc (oref, decTxOut) ->
-                      let v  = decTxOut ^. LTX.decoratedTxOutValue
-                          (_, dq) = LTX._decoratedTxOutScriptDatum decTxOut 
-                          in case dq of 
-                            LTX.DatumInline d -> 
-                              let md = PlutusTx.fromBuiltinData (LV2.getDatum d) 
-                              in case md of 
-                                Just d' -> acc ++ [ (OnChain.traderPkh d'    -- trader pkh
-                                                  , v                        -- utxo value
-                                                  , OnChain.datAmount  d'    -- amount of asset A trading
-                                                  , oref                     -- outref
-                                                  , OnChain.tradePrice d')]  -- price to trade
-                                Nothing -> acc
-                            _other -> acc) [] (Map.toList utxos)
-          
-          lookups = Constraints.unspentOutputs utxos
+      utxoData <- getUTxOData utxos
+
+      -- Construct transaction 
+      let lookups = Constraints.unspentOutputs utxos
                P.<> Constraints.typedValidatorLookups (OnChain.validatorInstance param)
            
-          tx =   -- Spend script outputs with correct redeemer 
-                 mconcat [ Constraints.mustSpendScriptOutput oref 
-                             (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Buy)  
-                            | (_, _, amt, oref, _) <- utxoData 
-                         ]
-                 -- Pay AssetB to each trader's pkh according to their trade 
-            P.<> mconcat [ Constraints.mustPayToPubKey pkh 
+          tx = -- Spend script outputs with correct redeemer 
+               mconcat [ Constraints.mustSpendScriptOutput oref 
+                           (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Buy)  
+                         | (_, _, amt, oref, _) <- utxoData ]
+               -- Pay AssetB to each trader's pkh according to their trade 
+              <> mconcat [ Constraints.mustPayToPubKey pkh 
                              (V.assetClassValue (taAssetB args) (amt * tp))
-                            | (pkh, _, amt, _, tp) <- utxoData 
-                         ]
-                 -- Pay AssetA to own pkh (consume value of taken utxos)
-                 -- NOTE: Min Lovelace also goes to own pkh
-            P.<> mconcat [ Constraints.mustPayToPubKey ownPkh v 
-                            | (_, v, _, _, _) <- utxoData 
-                         ]
+                           | (pkh, _, amt, _, tp) <- utxoData ]
+               -- Pay AssetA to own pkh (consume value of taken utxos)
+              <> mconcat [ Constraints.mustPayToPubKey ownPkh v 
+                           | (_, v, _, _, _) <- utxoData ]
+               -- NOTE: Min Lovelace also goes to own pkh
 
-      PC.logInfo @P.String $ printf "BUY MARKET ORDER" 
-      PC.logInfo @P.String $ printf "UTXOS TO CONSUME:\n%s" (P.show utxos) 
-      PC.logInfo @P.String $ printf "TARGET AMOUNT: %s"     (P.show targetAmt) 
-
-      -- Submit transaction
+      -- Submit transaction and tell new order book
       PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
-
-      -- Send new order book out of contract monad
       PC.tell [newOb]
 
     Sell -> do 
@@ -222,6 +201,25 @@ filterNftUTxOs utxos nfts = return $
         let v = decTxOut ^. LTX.decoratedTxOutValue 
         in foldl (\b nft -> if b then b else V.assetClassValueOf v nft == 1) False nfts) 
       utxos 
+
+-- Get data from filtered UTxOs to construct the transaction
+getUTxOData 
+  :: Map LTX.TxOutRef LTX.DecoratedTxOut 
+  -> PC.Contract [OrderBook] TradeSchema T.Text 
+      [(L.PaymentPubKeyHash, V.Value, Integer, LTX.TxOutRef, Integer)]
+getUTxOData utxos = return $ foldl (\acc (oref, decTxOut) ->
+  let v  = decTxOut ^. LTX.decoratedTxOutValue
+      (_, dq) = LTX._decoratedTxOutScriptDatum decTxOut 
+  in case dq of 
+    LTX.DatumInline d -> 
+      case PlutusTx.fromBuiltinData (LV2.getDatum d) of 
+        Just d' -> acc ++ [ (OnChain.traderPkh d'    -- trader pkh
+                          , v                        -- utxo value
+                          , OnChain.datAmount  d'    -- amount of asset A trading
+                          , oref                     -- outref
+                          , OnChain.tradePrice d')]  -- price to trade
+        Nothing -> acc
+    _other -> acc) [] (Map.toList utxos)
 
 -- ---------------------------------------------------------------------- 
 -- Top-level contract entry point
