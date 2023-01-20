@@ -42,15 +42,14 @@ import Plutus.Script.Utils.V2.Scripts                  (scriptCurrencySymbol)
 import Ledger                    qualified as L
 import Ledger.Ada                qualified as Ada
 import Playground.Contract       (ToSchema)
+import OrderBook.Model           (OrderSide(..))
 
 -- ---------------------------------------------------------------------- 
 -- Parameter
 -- ---------------------------------------------------------------------- 
 
 data Param = Param 
-    { --matcherPkh :: L.PaymentPubKeyHash
-  -- ^ pkh of matcher "manager" wallet
-      assetA     :: L.AssetClass 
+    { assetA     :: L.AssetClass 
   -- ^ first asset in trading pair
     , assetB     :: L.AssetClass 
   -- ^ second asset in trading pair
@@ -65,16 +64,6 @@ PlutusTx.makeLift ''Param
 -- Datum
 -- ---------------------------------------------------------------------- 
 
--- TODO: Import order book types
-data OrderSide = Buy | Sell
-    deriving stock (P.Show, Generic)
-    deriving anyclass (ToJSON, FromJSON, ToSchema)
-
-instance Eq OrderSide where 
-  Buy  == Buy  = True
-  Sell == Sell = True 
-  _    == _    = False
-
 data Dat = Dat
     { traderPkh     :: L.PaymentPubKeyHash
    -- ^ pkh of wallet adding liquidity
@@ -88,7 +77,7 @@ data Dat = Dat
    -- ^ used to filter inputs under this script address
     }
 
-PlutusTx.makeIsDataIndexed ''OrderSide [('Buy, 0), ('Sell, 1)]
+--PlutusTx.makeIsDataIndexed ''OCOrderSide [('OCBuy, 0), ('OCSell, 1)]
 PlutusTx.makeIsDataIndexed ''Dat [('Dat, 0)]
 
 -- ---------------------------------------------------------------------- 
@@ -96,10 +85,10 @@ PlutusTx.makeIsDataIndexed ''Dat [('Dat, 0)]
 -- ---------------------------------------------------------------------- 
 
 data Redeem 
-    = Spend       -- spend utxo to execute a trade
-        Integer   -- amount of asset to buy/sell in market order
+    = Spend         -- spend utxo to execute a trade
+        Integer     -- amount of asset to buy/sell in market order
         OrderSide -- is trader buying or selling 
-    | Cancel      -- cancel this order and refund trader
+    | Cancel        -- cancel this order and refund trader
 
 PlutusTx.makeIsDataIndexed ''Redeem [('Spend, 0), ('Cancel, 1)]
 

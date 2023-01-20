@@ -40,8 +40,7 @@ common lang
 
 library
     import: lang
-
-    exposed-modules:
+    other-modules:
         OnChain
       , OffChain
       , Emulator

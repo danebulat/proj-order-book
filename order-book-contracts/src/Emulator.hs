@@ -26,8 +26,8 @@ import Wallet.Emulator.Wallet     qualified as Wallet
 import OffChain                   qualified 
 import OffChain                   (AddLiquidityArgs(..))
 import OnChain                    qualified
-import OnChain                    (OrderSide(..))
 import FreePolicy                 (freeCurSymbol)
+import OrderBook.Model            (OrderSide(..))
 
 -- ---------------------------------------------------------------------- 
 -- Configuration

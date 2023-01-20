@@ -1,6 +1,14 @@
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE DeriveAnyClass                #-}
+{-# LANGUAGE DeriveGeneric                 #-}
+{-# LANGUAGE DerivingStrategies            #-}
+{-# LANGUAGE FlexibleContexts              #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module OrderBook.Model where
+
+import Data.Aeson                     (FromJSON, ToJSON)
+import GHC.Generics                   (Generic)
 
 import Data.Default
 import Data.Map               (Map)
@@ -9,12 +17,13 @@ import GHC.List               (foldl')
 
 import Ledger                 qualified as L
 import Plutus.V1.Ledger.Value qualified as V
+import PlutusTx.Prelude       qualified as PP
+import PlutusTx               qualified
 
 -- ---------------------------------------------------------------------- 
 -- Data types
 -- ---------------------------------------------------------------------- 
 
---type Value = Integer
 type Price = Integer
 
 data OrderBook = OrderBook
@@ -25,7 +34,9 @@ data OrderBook = OrderBook
     , obCurAsk       :: !(Maybe Integer)
    -- ^ current ask price, where traders are willing to sell
     , obIncrement    :: !Integer
-    } deriving (Eq)
+    }
+    deriving stock (Eq, Generic)
+    deriving anyclass (ToJSON, FromJSON)
 
 data Order = Order 
     { oType   :: !OrderType
@@ -36,7 +47,9 @@ data Order = Order
    -- ^ amount of the token or usd to trade
     , oSide   :: OrderSide
    -- ^ whether it's a buy or sell market order
-    } deriving (Eq, Show)
+    } 
+    deriving stock (Show, Eq, Generic)
+    deriving anyclass (ToJSON, FromJSON)
 
 data OrderType  
     = Market 
@@ -46,14 +59,23 @@ data OrderType
         , otlNft :: V.AssetClass
        -- ^ nft attached to this order on-chain
         }
-    deriving (Eq, Show)
+    deriving stock (Show, Eq, Generic)
+    deriving anyclass (ToJSON, FromJSON)
 
 data OrderSide 
     = Buy 
    -- ^ where max price is the highest price trader is willing to buy asset 
     | Sell
    -- ^ where max price is the lowest price trader is willing to sell asset
-  deriving (Eq, Show)
+    deriving stock (Show, Eq, Generic)
+    deriving anyclass (ToJSON, FromJSON)
+
+instance PP.Eq OrderSide where 
+  Buy  == Buy  = True
+  Sell == Sell = True 
+  _    == _    = False
+
+PlutusTx.makeIsDataIndexed ''OrderSide [('Buy, 0), ('Sell, 1)]
 
 -- ----------------------------------------------------------------------   
 -- Default instance 

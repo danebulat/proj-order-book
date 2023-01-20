@@ -1,35 +1,28 @@
-{-# LANGUAGE AllowAmbiguousTypes           #-}
 {-# LANGUAGE DataKinds                     #-}
 {-# LANGUAGE DeriveAnyClass                #-}
 {-# LANGUAGE DeriveGeneric                 #-}
 {-# LANGUAGE DerivingStrategies            #-}
-{-# LANGUAGE FlexibleContexts              #-}
 {-# LANGUAGE ImportQualifiedPost           #-}
-{-# LANGUAGE MultiParamTypeClasses         #-}
-{-# LANGUAGE NoImplicitPrelude             #-}
-{-# LANGUAGE PartialTypeSignatures         #-}
-{-# LANGUAGE ScopedTypeVariables           #-}
-{-# LANGUAGE TypeApplications              #-}
-{-# LANGUAGE TypeFamilies                  #-}
-{-# LANGUAGE TypeOperators                 #-}
+{-# LANGUAGE NoImplicitParams              #-}
 {-# LANGUAGE OverloadedStrings             #-}
+{-# LANGUAGE TypeApplications              #-}
+{-# LANGUAGE TypeOperators                 #-}
 
-{-# OPTIONS_GHC -fno-warn-unused-imports   #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
 module OffChain where
 
-import Control.Monad                  (void)
+import Control.Lens                   ((^.))
 import Data.Aeson                     (FromJSON, ToJSON)
-import Data.Map                       (Map)
+--import Data.Map                       (Map)
 import Data.Map                       qualified as Map 
-import Data.Maybe                     (catMaybes, fromJust)
+import Data.Maybe                     (fromJust)
 import Data.Text                      qualified as T
 import GHC.Generics                   (Generic)
 import Text.Printf                    (printf)
 
 import PlutusTx                       qualified
-import PlutusTx.Prelude               hiding (pure, (<$>))
+import PlutusTx.Prelude
 import Plutus.V2.Ledger.Api           qualified as LV2
 import Plutus.V2.Ledger.Contexts      qualified as LV2C
 import Plutus.V1.Ledger.Value         qualified as V
@@ -37,59 +30,17 @@ import Prelude                        qualified as P
 
 import Ledger                         qualified as L
 import Ledger.Ada                     qualified as Ada
-import Ledger.Address                 qualified as V1LAddress
 import Ledger.Constraints             qualified as Constraints 
-import Ledger.Typed.Scripts           qualified as Scripts
-import Ledger.Tx                      qualified as LTx
-import Playground.Contract            (ToSchema)
+import Ledger.Tx                      qualified as LTX
 import Plutus.Contract                (type (.\/))
 import Plutus.Contract                qualified as PC 
 
-import OnChain                       qualified 
-import OnChain                       (OrderSide(..), Dat(..), Param(..), scriptParamAddress)
-import TradeNft                      qualified
-import TradeNft                      (PolicyParam(..))
-
--- ---------------------------------------------------------------------- 
--- Schema
--- ---------------------------------------------------------------------- 
-
-type TradeSchema =
-        PC.Endpoint "add-liquidity"    AddLiquidityArgs
-    .\/ PC.Endpoint "remove-liquidity" RemoveLiquidityArgs
-    .\/ PC.Endpoint "trade-assets"     TradeAssetsArgs
-
--- ---------------------------------------------------------------------- 
--- Data types for contract arguments
--- ---------------------------------------------------------------------- 
-
--- | Arguments for the "add-liquidity endpoint"
-data AddLiquidityArgs = AddLiquidityArgs
-  { alAssetA        :: L.AssetClass 
-  , alAssetB        :: L.AssetClass 
-  , alAmount        :: Integer
-  , alSide          :: OrderSide
-  , alTradePrice    :: Integer 
-  , alTraderAddr    :: LV2.Address
-  } 
-  deriving stock (P.Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, ToSchema)
-
-data RemoveLiquidityArgs = RemoveLiquidityArgs
-  { rlAssetA        :: L.AssetClass 
-  , rlAssetB        :: L.AssetClass 
-  }
-  deriving stock (P.Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, ToSchema)
-
-data TradeAssetsArgs = TradeAssetsArgs 
-  { taAssetA :: L.AssetClass 
-  , taAssetB :: L.AssetClass
-  , taAmount :: Integer       -- Amount of asset to buy/sell
-  , taSide   :: OrderSide     -- Side of currency pair to trade (buy or sell)
-  }
-  deriving stock (P.Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, ToSchema)
+import OnChain                        qualified 
+import OnChain                        (Dat(..), Param(..), scriptParamAddress)
+import TradeNft                       qualified
+import TradeNft                       (PolicyParam(..))
+import OrderBook.Model                (OrderSide(..), OrderBook(..), Order(..), OrderType(..))
+import OrderBook.Matching             qualified as Matching
 
 -- ====================================================================== 
 -- Contract endpoins
@@ -176,8 +127,73 @@ removeLiquidity = PC.endpoint @"remove-liquidity" $ \_args -> do
 -- ---------------------------------------------------------------------- 
 
 tradeAssets :: PC.Promise () TradeSchema T.Text ()
-tradeAssets = PC.endpoint @"trade-assets" $ \_args -> do 
-  PC.logInfo @P.String $ printf "Traded assets"
+tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
+  ownPkh <- PC.ownFirstPaymentPubKeyHash
+
+  case taSide args of
+    Buy -> do
+      let targetAmt      = taAmount args
+          ob             = taOrderBook args
+          curAsk         = fromJust $ obCurAsk ob
+          validatorParam = OnChain.Param (taAssetA args) (taAssetB args)
+          param          = Param { assetA = taAssetA args, assetB = taAssetB args }
+
+      -- Take orders from order book to consume
+      let (_amtToConsume, os, _newOb) = Matching.takeOrdersForBuy curAsk targetAmt ob (0,[])
+
+      -- Get NFTs from extracted orders
+          orderNfts = getNftFromOrder <$> os
+
+      -- Retrieve corresponding on-chain UTxOs
+      -- utxosAt :: Address -> Map TxOutRef DecoratedTxOut
+      utxosAtScript <- PC.utxosAt (OnChain.scriptParamAddress validatorParam)
+      
+      -- Filter utxos holding the NFTs
+      let _utxos = Map.filter (\decTxOut -> 
+                    let v = decTxOut ^. LTX.decoratedTxOutValue 
+                    in foldl (\b nft -> if b then b else V.assetClassValueOf v nft == 1) False orderNfts) 
+                  utxosAtScript 
+        
+          -- Get data from filtered UTxOs (pkh, val, amount, oref, tradePrice)
+          _utxoData = foldl (\acc (oref, decTxOut) ->
+                      let v  = decTxOut ^. LTX.decoratedTxOutValue
+                          (dh, dq) = LTX._decoratedTxOutScriptDatum decTxOut 
+                          in case dq of 
+                            LTX.DatumInline d -> 
+                              let md = PlutusTx.fromBuiltinData (LV2.getDatum d) 
+                              in case md of 
+                                Just d' -> acc ++ [ (OnChain.traderPkh d'    -- trader pkh
+                                                  , v                        -- utxo value
+                                                  , OnChain.datAmount  d'    -- amount of asset A trading
+                                                  , oref                     -- outref
+                                                  , OnChain.tradePrice d')]  -- price to trade
+                                Nothing -> acc
+                            _other -> acc) [] (Map.toList _utxos)
+          
+          _lookups = 
+                   Constraints.unspentOutputs _utxos
+              P.<> Constraints.typedValidatorLookups (OnChain.validatorInstance param)
+          
+          _tx =    -- Spend script outputs with correct redeemer 
+                   [ Constraints.mustSpendScriptOutput oref 
+                       (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Buy)  
+                     | (pkh, v, amt, oref, tp) <- _utxoData 
+                   ]
+                   -- Pay AssetB to each trader's pkh according to their trade 
+              P.<> [ Constraints.mustPayToPubKey pkh' 
+                       (V.assetClassValue (taAssetB args) (amt * tp))
+                     | (pkh', v, amt, oref, tp) <- _utxoData 
+                   ]
+                   -- Pay AssetA to own pkh (consume value of taken utxos)
+                   -- NOTE: Min Lovelace also goes to own pkh
+              P.<> [ Constraints.mustPayToPubKey ownPkh v 
+                     | (pkh', v, amt, oref, tp) <- _utxoData 
+                   ]
+
+      PC.logInfo @P.String $ printf "BUY market order (%d of AssetA)" (taAmount args)
+
+    Sell -> do 
+      PC.logInfo @P.String $ printf "SELL market order (%d of AssetA)" (taAmount args)
 
 -- ---------------------------------------------------------------------- 
 -- Top-level contract entry point
@@ -199,4 +215,49 @@ calculateTokenNameHash :: LV2.TxOutRef -> BuiltinByteString
 calculateTokenNameHash oref = sha2_256 (consByteString idx txid)
   where idx  = LV2C.txOutRefIdx oref 
         txid = LV2.getTxId $ LV2.txOutRefId oref 
+
+getNftFromOrder :: Order -> V.AssetClass
+getNftFromOrder = otlNft . oType 
+
+-- ---------------------------------------------------------------------- 
+-- Schema
+-- ---------------------------------------------------------------------- 
+
+type TradeSchema =
+        PC.Endpoint "add-liquidity"    AddLiquidityArgs
+    .\/ PC.Endpoint "remove-liquidity" RemoveLiquidityArgs
+    .\/ PC.Endpoint "trade-assets"     TradeAssetsArgs
+
+-- ---------------------------------------------------------------------- 
+-- Data types for contract arguments
+-- ---------------------------------------------------------------------- 
+
+-- | Arguments for the "add-liquidity endpoint"
+data AddLiquidityArgs = AddLiquidityArgs
+  { alAssetA        :: L.AssetClass 
+  , alAssetB        :: L.AssetClass 
+  , alAmount        :: Integer
+  , alSide          :: OrderSide
+  , alTradePrice    :: Integer 
+  , alTraderAddr    :: LV2.Address
+  } 
+  deriving stock (P.Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)
+
+data RemoveLiquidityArgs = RemoveLiquidityArgs
+  { rlAssetA        :: L.AssetClass 
+  , rlAssetB        :: L.AssetClass 
+  }
+  deriving stock (P.Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)
+
+data TradeAssetsArgs = TradeAssetsArgs 
+  { taAssetA    :: L.AssetClass 
+  , taAssetB    :: L.AssetClass
+  , taAmount    :: Integer       -- Amount of asset to buy/sell
+  , taSide      :: OrderSide     -- Side of currency pair to trade (buy or sell)
+  , taOrderBook :: OrderBook     -- Order book to take orders from
+  }
+  deriving stock (P.Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)
 

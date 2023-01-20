@@ -29,7 +29,8 @@ import Plutus.V1.Ledger.Interval                       qualified as LV1Interval
 import Plutus.V1.Ledger.Value                          qualified as V
 import Ledger.Ada                                      qualified as Ada
 
-import OnChain (Dat(..), OrderSide(..))
+import OnChain         (Dat(..))
+import OrderBook.Model (OrderSide(..))
 
 -- ---------------------------------------------------------------------- 
 -- Parameter
