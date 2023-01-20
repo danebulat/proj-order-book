@@ -241,6 +241,7 @@ trace5 = do
 
   void $ waitNSlots 2
   ob1 <- Emulator.observableState h1
+  Extras.logInfo @String $ "OBSERVABLE STATE 01:\n" ++ show ob1
   void $ waitNSlots 2
 
   -- Sell 10xAssetA @ 4
@@ -255,6 +256,7 @@ trace5 = do
     }
   void $ waitNSlots 2
   ob2 <- Emulator.observableState h2 
+  Extras.logInfo @String $ "OBSERVABLE STATE 02:\n" ++ show ob2
   void $ waitNSlots 2
 
   -- Sell 10xAssetA @ 4
@@ -269,6 +271,7 @@ trace5 = do
     }
   void $ waitNSlots 2
   ob3 <- Emulator.observableState h3
+  Extras.logInfo @String $ "OBSERVABLE STATE 03:\n" ++ show ob3
   void $ waitNSlots 2
 
   -- Buy 20XAssetA (market order)

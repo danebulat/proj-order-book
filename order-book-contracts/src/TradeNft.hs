@@ -29,8 +29,19 @@ import Plutus.V1.Ledger.Interval                       qualified as LV1Interval
 import Plutus.V1.Ledger.Value                          qualified as V
 import Ledger.Ada                                      qualified as Ada
 
-import OnChain         (Dat(..))
+import OnChain         (Dat(..), getDatum)
 import OrderBook.Model (OrderSide(..))
+
+-- ------------------------------------------------------------ 
+-- Policy Checks
+-- ------------------------------------------------------------ 
+
+-- [x] Check: Validate token name 
+-- [x] Check: Overflow 
+-- [x] Check: Minted amount is 1
+-- [x] Check: Utxo is being consumed
+-- [x] Check: Token being deposited in script utxo
+-- [x] Check: AssetA or AssetB is being deposited to script utxo only
 
 -- ---------------------------------------------------------------------- 
 -- Parameter
@@ -49,8 +60,6 @@ PlutusTx.makeLift ''PolicyParam
 -- Policy
 -- ---------------------------------------------------------------------- 
 
--- TODO: Reference input with datum containing the curBid + curAsk
-
 {-# INLINEABLE mkPolicy #-}
 mkPolicy :: PolicyParam -> LV2.TxOutRef -> LV2C.ScriptContext -> Bool
 mkPolicy param utxo ctx = case mintedValue of 
@@ -67,18 +76,6 @@ mkPolicy param utxo ctx = case mintedValue of
     mintedValue :: [(LV2.CurrencySymbol, LV2.TokenName, Integer)]
     mintedValue = filter (\(cs, _tn, _n) -> cs == LV2C.ownCurrencySymbol ctx) mintFlattened
     
-    -- ------------------------------------------------------------ 
-    -- Checks
-    -- ------------------------------------------------------------ 
-
-    -- [x] Check: Validate token name 
-    -- [x] Check: Overflow 
-    -- [x] Check: Minted amount is 1
-    -- [x] Check: Utxo is being consumed
-    -- [x] Check: Token being deposited in script utxo
-    -- [x] Check: AssetA or AssetB is being deposited to script utxo only
-    -- [ ] Check: Trade price is valid based on the current bid or ask price 
-
     validateMint :: LV2.TokenName -> Integer -> Bool 
     validateMint tn amount = 
          amount == 1 
@@ -148,24 +145,6 @@ mkPolicy param utxo ctx = case mintedValue of
         scriptOutVal = LV2C.txOutValue scriptOut
         targetNftVal = V.assetClassValue ownAssetClass 1
         adaClass     = V.AssetClass (Ada.adaSymbol, Ada.adaToken)
-
--- ---------------------------------------------------------------------- 
--- Utilities
--- ---------------------------------------------------------------------- 
--- TODO: Put in utils module
-
-{-# INLINABLE minLovelace #-}
-minLovelace :: V.Value
-minLovelace = Ada.lovelaceValueOf (Ada.getLovelace  L.minAdaTxOut)
-
-{-# INLINABLE getDatum #-}
-getDatum :: LV2.TxOut -> Dat
-getDatum txOut = case txOut ^. LTXV2.outDatum of 
-  LTXV2.NoOutputDatum     -> traceError "Datum error"
-  LTXV2.OutputDatumHash _ -> traceError "Datum error"
-  LTXV2.OutputDatum d     -> case PlutusTx.fromBuiltinData $ LV2.getDatum d of 
-                               Nothing -> traceError "Datum error"
-                               Just d' -> d'
 
 -- ---------------------------------------------------------------------- 
 -- Boilerplate

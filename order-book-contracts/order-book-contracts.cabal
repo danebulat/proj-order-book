@@ -46,6 +46,7 @@ library
       , Emulator
       , FreePolicy
       , TradeNft
+      , Common.Utils
       , OrderBook.Matching
       , OrderBook.Model
       , OrderBook.Utils

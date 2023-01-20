@@ -160,8 +160,6 @@ mkValidator param dat red ctx = case red of
     fullValueReturned = LV2C.valuePaidTo txInfo pkh == ownInput ^. LTXV2.outValue
       where pkh = L.unPaymentPubKeyHash (traderPkh dat)
 
-    -- ------------------------------------------------------------ 
-
     getInputs :: [LV2C.TxInInfo]
     getInputs = LV2C.txInfoInputs txInfo 
 
@@ -174,8 +172,6 @@ mkValidator param dat red ctx = case red of
     ownScriptInputs :: [LV2.TxInInfo]
     ownScriptInputs = filter pred' getInputs
       where pred' i = LV2.txOutAddress (LV2.txInInfoResolved i) == scriptAddress dat
-
-    -- ------------------------------------------------------------ 
 
     -- Check amount of assetA to be traded matches at least one input 
     -- NOTE: Currently handles EXACT (==) matches (no partially filled orders)
@@ -201,11 +197,6 @@ mkValidator param dat red ctx = case red of
 -- ---------------------------------------------------------------------- 
 -- Utilities
 -- ---------------------------------------------------------------------- 
--- TODO: Put in utils module
-
-{-# INLINABLE minLovelace #-}
-minLovelace :: V.Value
-minLovelace = Ada.lovelaceValueOf (Ada.getLovelace  L.minAdaTxOut)
 
 {-# INLINABLE getDatum #-}
 getDatum :: LV2.TxOut -> Dat
