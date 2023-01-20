@@ -137,10 +137,13 @@ removeLiquidity = PC.endpoint @"remove-liquidity" $ \_args -> do
 
 tradeAssets :: PC.Promise [OrderBook] TradeSchema T.Text ()
 tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
+  PC.logInfo @P.String $ printf "ENTERING TRADE ASSETS" 
   ownPkh <- PC.ownFirstPaymentPubKeyHash
 
   case taSide args of
     Buy -> do
+      PC.logInfo @P.String $ printf "ENTERING BUY MARKET ORDER" 
+
       let targetAmt      = taAmount args
           ob             = taOrderBook args
           curAsk         = fromJust $ obCurAsk ob
@@ -219,7 +222,7 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
 contract :: PC.Contract [OrderBook] TradeSchema T.Text ()
 contract = do 
   PC.logInfo @P.String "Waiting for add-liquidity endpoint"
-  PC.selectList [addLiquidity] >> contract
+  PC.selectList [addLiquidity, removeLiquidity, tradeAssets] >> contract
 
 -- ---------------------------------------------------------------------- 
 -- Helper functions

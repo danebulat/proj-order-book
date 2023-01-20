@@ -166,8 +166,10 @@ mkValidator param dat red ctx = case red of
     getInputs = LV2C.txInfoInputs txInfo 
 
     checkAllOwnScriptInputsOnSide:: OrderSide -> Bool
-    checkAllOwnScriptInputsOnSide s = not $ foldl (\b i -> if b then b else
-      let txo = LV2.txInInfoResolved i in side (getDatum txo) /= s) False ownScriptInputs 
+    checkAllOwnScriptInputsOnSide s = traceIfFalse "Inputs have wrong side" $ 
+        not $ foldl (\b i -> if b then b else
+                let txo = LV2.txInInfoResolved i in side (getDatum txo) /= s) 
+              False ownScriptInputs 
      
     ownScriptInputs :: [LV2.TxInInfo]
     ownScriptInputs = filter pred' getInputs
@@ -175,24 +177,26 @@ mkValidator param dat red ctx = case red of
 
     -- ------------------------------------------------------------ 
 
-    -- Check amount of asset A to be traded
+    -- Check amount of assetA to be traded matches at least one input 
     -- NOTE: Currently handles EXACT (==) matches (no partially filled orders)
     checkAmountToTrade :: Integer -> Bool
-    checkAmountToTrade amt = amt == foldl (\acc i -> 
-      acc + datAmount (getDatum (LV2.txInInfoResolved i))) 0 ownScriptInputs
+    checkAmountToTrade amt = traceIfFalse "Wrong amounts" $ 
+      amt `elem` map (datAmount . getDatum . LV2.txInInfoResolved) ownScriptInputs
 
     -- Check correct amount of asset A sent to trader
     checkAmountSentToTraderAssetA :: Bool 
-    checkAmountSentToTraderAssetA =
+    checkAmountSentToTraderAssetA = traceIfFalse "Wrong amount sent to utxo trader A" $
       let expectedAssetA = V.assetClassValue (assetA param) (datAmount dat) 
       in LV2C.valuePaidTo txInfo 
-          (L.unPaymentPubKeyHash $ traderPkh dat) == expectedAssetA
+          (L.unPaymentPubKeyHash $ traderPkh dat) `V.geq` expectedAssetA
+      -- NOTE: `geq` being used as trader gets min lovelace as well as assets
 
     -- Check correct amount of asset B sent to trader
     checkAmountSentToTraderAssetB :: Bool
-    checkAmountSentToTraderAssetB = 
+    checkAmountSentToTraderAssetB = traceIfFalse "Wrong amount sent to utxo trader B" $
       let expectedAssetB = V.assetClassValue (assetB param) (datAmount dat * tradePrice dat)
-      in LV2C.valuePaidTo txInfo (L.unPaymentPubKeyHash $ traderPkh dat) == expectedAssetB
+      in LV2C.valuePaidTo txInfo (L.unPaymentPubKeyHash $ traderPkh dat) `V.geq` expectedAssetB
+      -- NOTE: `geq` being used as trader gets min lovelace as well as assets
 
 -- ---------------------------------------------------------------------- 
 -- Utilities

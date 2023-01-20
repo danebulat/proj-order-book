@@ -95,7 +95,8 @@ mkPolicy param utxo ctx = case mintedValue of
             txid = LV2.getTxId $ LV2.txOutRefId utxo
 
     validateTokenName :: LV2.TokenName -> Bool
-    validateTokenName tn = LV2.unTokenName tn == calculateTokenNameHash
+    validateTokenName tn = traceIfFalse "Wrong nft name" $ 
+      LV2.unTokenName tn == calculateTokenNameHash
 
     ownAssetClass :: L.AssetClass
     ownAssetClass = V.assetClass (LV2C.ownCurrencySymbol ctx) 
@@ -103,11 +104,13 @@ mkPolicy param utxo ctx = case mintedValue of
     
     -- Overflow
     checkForOverflow :: Bool
-    checkForOverflow = LV2C.txOutRefIdx utxo < 256
+    checkForOverflow = traceIfFalse "overflow error" $ 
+      LV2C.txOutRefIdx utxo < 256
 
     -- Redeemer utxo in inputs
     hasUTxO:: Bool
-    hasUTxO = any (\i -> LV2C.txInInfoOutRef i == utxo) $ LV2C.txInfoInputs txInfo
+    hasUTxO = traceIfFalse "utxo not found" $ 
+      any (\i -> LV2C.txInInfoOutRef i == utxo) $ LV2C.txInfoInputs txInfo
 
     -- Get output being created at the script address
     getScriptUTxO :: LV2C.TxOut
