@@ -154,32 +154,3 @@ takeOrdersForSell k targetAmt ob (accAmt, accOs) =
   where 
     ordersAtKey = getOrdersAtKey k (obLimitOrders ob)
 
--- ----------------------------------------------------------------------   
--- Update bid/ask when taking orders in `takeOrdersForBuy` and
--- takeOrdersForSell`
--- ----------------------------------------------------------------------   
-
-updateAsk :: OrderBook -> Price -> OrderBook 
-updateAsk ob curAsk = 
-  let m = obLimitOrders ob
-  in case m Map.! curAsk of 
-    -- Empty price level key also deleted here
-    [] -> case Map.lookupGT curAsk m of 
-            Just (nextAsk, _) -> ob { obLimitOrders = Map.delete curAsk m
-                                    , obCurAsk = Just nextAsk }
-            Nothing           -> ob { obLimitOrders = Map.delete curAsk m
-                                    , obCurAsk = Nothing      }
-    _anyOther -> ob
-
-updateBid :: OrderBook -> Price -> OrderBook 
-updateBid ob curBid = 
-  let m = obLimitOrders ob
-  in case m Map.! curBid of 
-    -- Empty price level key also deleted here
-    [] -> case Map.lookupLT curBid m of 
-            Just (nextBid, _) -> ob { obLimitOrders = Map.delete curBid m
-                                    , obCurBid = Just nextBid }
-            Nothing           -> ob { obLimitOrders = Map.delete curBid m
-                                    , obCurBid = Nothing      }
-    _anyOther  -> ob
-

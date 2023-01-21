@@ -11,6 +11,34 @@ import Plutus.V1.Ledger.Value qualified as V
 import OrderBook.Model
 
 -- ---------------------------------------------------------------------- 
+-- Update bid/ask based on a price
+-- ----------------------------------------------------------------------   
+
+updateAsk :: OrderBook -> Price -> OrderBook 
+updateAsk ob curAsk = 
+  let m = obLimitOrders ob
+  in case m Map.! curAsk of 
+    -- Empty price level key also deleted here
+    [] -> case Map.lookupGT curAsk m of 
+            Just (nextAsk, _) -> ob { obLimitOrders = Map.delete curAsk m
+                                    , obCurAsk = Just nextAsk }
+            Nothing           -> ob { obLimitOrders = Map.delete curAsk m
+                                    , obCurAsk = Nothing      }
+    _anyOther -> ob
+
+updateBid :: OrderBook -> Price -> OrderBook 
+updateBid ob curBid = 
+  let m = obLimitOrders ob
+  in case m Map.! curBid of 
+    -- Empty price level key also deleted here
+    [] -> case Map.lookupLT curBid m of 
+            Just (nextBid, _) -> ob { obLimitOrders = Map.delete curBid m
+                                    , obCurBid = Just nextBid }
+            Nothing           -> ob { obLimitOrders = Map.delete curBid m
+                                    , obCurBid = Nothing      }
+    _anyOther  -> ob
+
+-- ---------------------------------------------------------------------- 
 -- Making order books and orders
 -- ---------------------------------------------------------------------- 
 
@@ -62,6 +90,27 @@ updateBidAsk ob o
     where 
       s = oSide o
       p = otlMaxPrice (oType o)
+
+-- ---------------------------------------------------------------------- 
+-- Removing limit orders to an order book
+-- ---------------------------------------------------------------------- 
+
+-- Remove order from an order book
+removeLimitOrder :: Order -> OrderBook -> OrderBook
+removeLimitOrder o ob
+  | isMarketOrder o = ob
+  | otherwise = 
+      let k    = otlMaxPrice . oType $ o
+          mos  = obLimitOrders ob Map.!? k
+      in case mos of 
+        Nothing -> ob
+        Just _ -> 
+          let nft  = otlNft . oType $ o
+              m    = Map.adjust (filter (\o' -> (otlNft . oType $ o') /= nft)) k (obLimitOrders ob)
+          in case oSide o of 
+            -- Also update bid/ask as necessart
+            Buy  -> updateAsk (ob { obLimitOrders = m }) k
+            Sell -> updateBid (ob { obLimitOrders = m }) k
 
 -- ----------------------------------------------------------------------   
 -- Rejection criteria:
