@@ -42,7 +42,7 @@ import TradeNft                       qualified
 import TradeNft                       (PolicyParam(..))
 import OrderBook.Model                (OrderSide(..), OrderBook(..), Order(..), OrderType(..))
 import OrderBook.Matching             qualified as Matching
-import OrderBook.Utils                (addLimitOrders, mkLimitOrder)
+import OrderBook.Utils                (addLimitOrders, mkLimitOrder, getFlattenedOrders)
 
 -- ====================================================================== 
 -- Contract endpoins
@@ -103,8 +103,6 @@ addLiquidity = PC.endpoint @"add-liquidity" $ \args -> do
 
         -- Send new order book outside contract monad
         PC.tell [newOb]
-
-        -- Logging
         PC.logInfo @P.String $ printf "DEPOSITED TO SCRIPT ADDRESS"
 
 getValueToPay :: AddLiquidityArgs -> PC.Contract [OrderBook] TradeSchema T.Text V.Value
@@ -131,8 +129,35 @@ getDatumParamFromArgs args = do
 -- ---------------------------------------------------------------------- 
 
 removeLiquidity :: PC.Promise [OrderBook] TradeSchema T.Text ()
-removeLiquidity = PC.endpoint @"remove-liquidity" $ \_args -> do 
-  PC.logInfo @P.String $ printf "Removed liquidity"
+removeLiquidity = PC.endpoint @"remove-liquidity" $ \args -> do 
+  pkh <- PC.ownFirstPaymentPubKeyHash
+
+  -- Get NFT from order to cancel
+  let orderBook     = rlOrderBook args
+      walletOrders  = filter (\o -> oPkh o == pkh) (getFlattenedOrders orderBook)
+      orderToCancel = walletOrders !! rlOrderIndex args
+      orderNft      = getNftFromOrder orderToCancel
+
+  -- Get the corresponding utxo on the blockchain
+  let param = Param { assetA = rlAssetA args, assetB = rlAssetB args }
+  utxosAtScript <- PC.utxosAt (OnChain.scriptParamAddress param)
+  utxos         <- filterNftUTxOs utxosAtScript [orderNft]
+
+  -- Construct transaction to spend utxo and refund value back to this wallet
+  let (oref, o) = head . Map.toList $ utxos
+
+      lookups = Constraints.typedValidatorLookups (OnChain.validatorInstance param)
+             <> Constraints.unspentOutputs (Map.singleton oref o)
+
+      tx      = Constraints.mustSpendScriptOutput oref 
+                (L.Redeemer $ PlutusTx.toBuiltinData OnChain.Cancel) 
+             <> Constraints.mustPayToPubKey pkh (o ^. LTX.decoratedTxOutValue)
+
+  -- Submit transaction 
+  PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
+
+  -- TODO: Update order book (remove an order)
+  PC.logInfo @P.String $ printf "REMOVED LIQUIDITY"
 
 -- ---------------------------------------------------------------------- 
 -- "trade-assets" contract endpoint
@@ -142,13 +167,13 @@ tradeAssets :: PC.Promise [OrderBook] TradeSchema T.Text ()
 tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
   ownPkh <- PC.ownFirstPaymentPubKeyHash
 
+  let targetAmt = taAmount args
+      orderBook = taOrderBook args
+      param     = Param { assetA = taAssetA args, assetB = taAssetB args }
+
   case taSide args of
     Buy -> do
       PC.logInfo @P.String $ printf "ENTERING BUY MARKET ORDER" 
-
-      let targetAmt = taAmount args
-          orderBook = taOrderBook args
-          param     = Param { assetA = taAssetA args, assetB = taAssetB args }
 
       -- Get order NFTs and script outputs to spend 
       (orderNfts, newOb) <- takeOrdersForBuy targetAmt orderBook 
@@ -163,9 +188,9 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
                  <> Constraints.typedValidatorLookups (OnChain.validatorInstance param)
            
           tx = -- Spend script outputs with correct redeemer 
-               mconcat [ Constraints.mustSpendScriptOutput oref 
-                           (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Buy)  
-                         | (_, _, amt, oref, _) <- utxoData ]
+                 mconcat [ Constraints.mustSpendScriptOutput oref 
+                             (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Buy)  
+                           | (_, _, amt, oref, _) <- utxoData ]
                -- Pay AssetB to each trader's pkh according to their trade 
               <> mconcat [ Constraints.mustPayToPubKey pkh 
                              (V.assetClassValue (taAssetB args) (amt * tp))
@@ -181,10 +206,6 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
 
     Sell -> do 
       PC.logInfo @P.String $ printf "ENTERING SELL MARKET ORDER"
-
-      let targetAmt = taAmount args
-          orderBook = taOrderBook args
-          param     = Param { assetA = taAssetA args, assetB = taAssetB args }
 
       -- Get order NFTs and script outputs to spend
       (orderNfts, newOb) <- takeOrdersForSell targetAmt orderBook
@@ -315,8 +336,11 @@ data AddLiquidityArgs = AddLiquidityArgs
   deriving anyclass (ToJSON, FromJSON)
 
 data RemoveLiquidityArgs = RemoveLiquidityArgs
-  { rlAssetA        :: L.AssetClass 
-  , rlAssetB        :: L.AssetClass 
+  { rlAssetA     :: L.AssetClass 
+  , rlAssetB     :: L.AssetClass 
+  , rlOrderBook  :: OrderBook
+  , rlOrderIndex :: Integer
+ -- ^ which order to cancel (user may have multiple orders in order book)
   }
   deriving stock (P.Show, Generic)
   deriving anyclass (ToJSON, FromJSON)
