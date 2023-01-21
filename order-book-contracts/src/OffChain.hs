@@ -42,7 +42,7 @@ import TradeNft                       qualified
 import TradeNft                       (PolicyParam(..))
 import OrderBook.Model                (OrderSide(..), OrderBook(..), Order(..), OrderType(..))
 import OrderBook.Matching             qualified as Matching
-import OrderBook.Utils                (addLimitOrders, mkLimitOrder, getFlattenedOrders)
+import OrderBook.Utils                (addLimitOrders, mkLimitOrder, getFlattenedOrders, removeLimitOrder)
 
 -- ====================================================================== 
 -- Contract endpoins
@@ -152,11 +152,14 @@ removeLiquidity = PC.endpoint @"remove-liquidity" $ \args -> do
       tx      = Constraints.mustSpendScriptOutput oref 
                 (L.Redeemer $ PlutusTx.toBuiltinData OnChain.Cancel) 
              <> Constraints.mustPayToPubKey pkh (o ^. LTX.decoratedTxOutValue)
+             <> Constraints.mustBeSignedBy pkh
 
-  -- Submit transaction 
+  -- Submit transaction
   PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
 
-  -- TODO: Update order book (remove an order)
+  -- Update order book (remove an order)
+  let newOb = removeLimitOrder orderToCancel orderBook
+  PC.tell [newOb]
   PC.logInfo @P.String $ printf "REMOVED LIQUIDITY"
 
 -- ---------------------------------------------------------------------- 

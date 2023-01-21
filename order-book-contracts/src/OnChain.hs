@@ -157,7 +157,8 @@ mkValidator param dat red ctx = case red of
       LV2C.txSignedBy txInfo $ L.unPaymentPubKeyHash (traderPkh dat)
 
     fullValueReturned :: Bool 
-    fullValueReturned = LV2C.valuePaidTo txInfo pkh == ownInput ^. LTXV2.outValue
+    fullValueReturned = traceIfFalse "Full value not returned" $ 
+        LV2C.valuePaidTo txInfo pkh `V.geq` (ownInput ^. LTXV2.outValue)
       where pkh = L.unPaymentPubKeyHash (traderPkh dat)
 
     getInputs :: [LV2C.TxInInfo]

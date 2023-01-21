@@ -24,7 +24,7 @@ import Wallet.Emulator.Wallet     (Wallet, knownWallet, mockWalletPaymentPubKeyH
 import Wallet.Emulator.Wallet     qualified as Wallet
 
 import OffChain                   qualified 
-import OffChain                   (AddLiquidityArgs(..), TradeAssetsArgs(..))
+import OffChain                   (AddLiquidityArgs(..), TradeAssetsArgs(..), RemoveLiquidityArgs(..))
 import OnChain                    qualified
 import FreePolicy                 (freeCurSymbol)
 import OrderBook.Model            (OrderSide(..))
@@ -95,7 +95,7 @@ trace1 = do
 
   -- Get updated order book
   newOb <- Emulator.observableState h1
-  Extras.logInfo @String $ "UPDATED ORDER BOOK:\n" ++ show newOb
+  Extras.logInfo @String $ "UPDATED ORDER BOOK:\n" ++ show (head newOb)
 
 -- ---------------------------------------------------------------------- 
 -- Trace 2
@@ -120,7 +120,7 @@ trace2 = do
   
   -- Get updated order book
   newOb <- Emulator.observableState h1
-  Extras.logInfo @String $ "UPDATED ORDER BOOK:\n" ++ show newOb
+  Extras.logInfo @String $ "UPDATED ORDER BOOK:\n" ++ show (head newOb)
 
 -- ---------------------------------------------------------------------- 
 -- Trace 3
@@ -161,7 +161,7 @@ trace3 = do
   void $ waitNSlots 2
   ob2 <- Emulator.observableState h2
   void $ waitNSlots 2
-  Extras.logInfo @String $ "UPDATED ORDER BOOK:\n" ++ show ob2 
+  Extras.logInfo @String $ "UPDATED ORDER BOOK:\n" ++ show (last ob2)
 
 -- ---------------------------------------------------------------------- 
 -- Trace 4
@@ -210,7 +210,7 @@ trace4 = do
     , taAssetB    = tokenAssetClassB 
     , taAmount    = 10   -- Must match a seller amount EXACTLY
     , taSide      = Buy 
-    , taOrderBook = head ob2 
+    , taOrderBook = last ob2 
     }
 
   void $ waitNSlots 2
@@ -267,11 +267,11 @@ trace5 = do
     , alSide       = Sell 
     , alTradePrice = 4
     , alTraderAddr = mockWalletAddress (knownWallet 3)
-    , alOrderBook  = head ob2 
+    , alOrderBook  = last ob2 
     }
   void $ waitNSlots 2
   ob3 <- Emulator.observableState h3
-  Extras.logInfo @String $ "OBSERVABLE STATE 03:\n" ++ show ob3
+  Extras.logInfo @String $ "OBSERVABLE STATE 03:\n" ++ show (last ob3)
   void $ waitNSlots 2
 
   -- Buy 20XAssetA (market order)
@@ -280,13 +280,84 @@ trace5 = do
     , taAssetB    = tokenAssetClassB 
     , taAmount    = 20   -- Must match seller amount(s) EXACTLY
     , taSide      = Buy 
-    , taOrderBook = head ob3 
+    , taOrderBook = last ob3 
     }
 
   void $ waitNSlots 2
   ob4 <- Emulator.observableState h4 
   void $ waitNSlots 2
-  Extras.logInfo @String $ "UPDATED ORDER BOOK:\n" ++ show ob4
+  Extras.logInfo @String $ "UPDATED ORDER BOOK:\n" ++ show (last ob4)
+
+-- ---------------------------------------------------------------------- 
+-- Trace 6
+-- ---------------------------------------------------------------------- 
+
+-- Deposit 20xAssetB and cancel BUY order
+trace6 :: Emulator.EmulatorTrace ()
+trace6 = do 
+  h1 <- Emulator.activateContractWallet (knownWallet 1) OffChain.contract
+
+  Emulator.callEndpoint @"add-liquidity" h1 $ AddLiquidityArgs 
+    { alAssetA     = tokenAssetClassA
+    , alAssetB     = tokenAssetClassB 
+    , alAmount     = 10 
+    , alSide       = Buy 
+    , alTradePrice = 2
+    , alTraderAddr = mockWalletAddress (knownWallet 1)
+    , alOrderBook  = mkEmptyOrderBook 
+    }
+
+  void $ waitNSlots 2
+  ob1 <- Emulator.observableState h1
+  void $ waitNSlots 2
+
+  Emulator.callEndpoint @"remove-liquidity" h1 $ RemoveLiquidityArgs
+    { rlAssetA     = tokenAssetClassA
+    , rlAssetB     = tokenAssetClassB
+    , rlOrderBook  = head ob1 
+    , rlOrderIndex = 0
+    }
+  
+  void $ waitNSlots 2
+  ob2 <- Emulator.observableState h1
+  void $ waitNSlots 2
+  Extras.logInfo @String $ "UPDATED ORDER BOOK:\n" ++ show (last ob2)
+
+-- ---------------------------------------------------------------------- 
+-- Trace 7
+-- ---------------------------------------------------------------------- 
+
+-- Deposit 10xAssetA and cancel SELL order
+trace7 :: Emulator.EmulatorTrace ()
+trace7 = do 
+  h1 <- Emulator.activateContractWallet (knownWallet 1) OffChain.contract
+
+  Emulator.callEndpoint @"add-liquidity" h1 $ AddLiquidityArgs 
+    { alAssetA     = tokenAssetClassA
+    , alAssetB     = tokenAssetClassB 
+    , alAmount     = 10 
+    , alSide       = Sell 
+    , alTradePrice = 2
+    , alTraderAddr = mockWalletAddress (knownWallet 1)
+    , alOrderBook  = mkEmptyOrderBook 
+    }
+
+  void $ waitNSlots 2
+  ob1 <- Emulator.observableState h1
+  void $ waitNSlots 2
+
+  Emulator.callEndpoint @"remove-liquidity" h1 $ RemoveLiquidityArgs
+    { rlAssetA     = tokenAssetClassA
+    , rlAssetB     = tokenAssetClassB
+    , rlOrderBook  = head ob1 
+    , rlOrderIndex = 0
+    }
+  
+  void $ waitNSlots 2
+  ob2 <- Emulator.observableState h1
+  void $ waitNSlots 2
+  Extras.logInfo @String $ "UPDATED ORDER BOOK:\n" ++ show (last ob2)
+
 
 -- ---------------------------------------------------------------------- 
 -- Test
@@ -307,3 +378,8 @@ test4 = Emulator.runEmulatorTraceIO' def emCfg trace4
 test5 :: IO ()
 test5 = Emulator.runEmulatorTraceIO' def emCfg trace5
 
+test6 :: IO ()
+test6 = Emulator.runEmulatorTraceIO' def emCfg trace6
+
+test7 :: IO ()
+test7 = Emulator.runEmulatorTraceIO' def emCfg trace7
