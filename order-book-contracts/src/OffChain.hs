@@ -28,10 +28,12 @@ import Plutus.V2.Ledger.Contexts      qualified as LV2C
 import Plutus.V1.Ledger.Value         qualified as V
 import Prelude                        qualified as P 
 import Prelude                        ((<>))
+import Plutus.Script.Utils.V2.Scripts qualified as ScriptUtilsV2
 
 import Ledger                         qualified as L
 import Ledger.Ada                     qualified as Ada
 import Ledger.Constraints             qualified as Constraints 
+import Ledger.Constraints.TxConstraints qualified as TXConstraints             
 import Ledger.Tx                      qualified as LTX
 import Plutus.Contract                (type (.\/))
 import Plutus.Contract                qualified as PC 
@@ -131,36 +133,54 @@ getDatumParamFromArgs args = do
 removeLiquidity :: PC.Promise [OrderBook] TradeSchema T.Text ()
 removeLiquidity = PC.endpoint @"remove-liquidity" $ \args -> do 
   pkh <- PC.ownFirstPaymentPubKeyHash
+  utxosAtWallet <- PC.utxosAt (rlTraderAddr args)
 
-  -- Get NFT from order to cancel
-  let orderBook     = rlOrderBook args
-      walletOrders  = filter (\o -> oPkh o == pkh) (getFlattenedOrders orderBook)
-      orderToCancel = walletOrders !! rlOrderIndex args
-      orderNft      = getNftFromOrder orderToCancel
+  case Map.keys utxosAtWallet of
+    [] -> PC.logError @P.String $ printf "No UTxOs found at wallet address"
+    (walletOref: _) -> do
 
-  -- Get the corresponding utxo on the blockchain
-  let param = Param { assetA = rlAssetA args, assetB = rlAssetB args }
-  utxosAtScript <- PC.utxosAt (OnChain.scriptParamAddress param)
-  utxos         <- filterNftUTxOs utxosAtScript [orderNft]
+      -- Get NFT from order to cancel
+      let walletOut     = utxosAtWallet Map.! walletOref -- consumed for policy redeemer
+          orderBook     = rlOrderBook args
+          walletOrders  = filter (\o -> oPkh o == pkh) (getFlattenedOrders orderBook)
+          orderToCancel = walletOrders !! rlOrderIndex args
+          orderNft      = getNftFromOrder orderToCancel
 
-  -- Construct transaction to spend utxo and refund value back to this wallet
-  let (oref, o) = head . Map.toList $ utxos
+      -- Get the corresponding utxo on the blockchain
+      let param = Param { assetA = rlAssetA args, assetB = rlAssetB args }
+      utxosAtScript <- PC.utxosAt (OnChain.scriptParamAddress param)
+      utxos         <- filterNftUTxOs utxosAtScript [orderNft]
 
-      lookups = Constraints.typedValidatorLookups (OnChain.validatorInstance param)
-             <> Constraints.unspentOutputs (Map.singleton oref o)
+      -- For policy script to burn NFT
+      let policyRedeemer = L.Redeemer $ PlutusTx.toBuiltinData walletOref
+          policyParams = PolicyParam 
+            { ppAssetA = rlAssetA args 
+            , ppAssetB = rlAssetB args 
+            , ppScriptAddress = OnChain.scriptParamAddress param 
+            }
+          nftVal = V.assetClassValue orderNft 1
 
-      tx      = Constraints.mustSpendScriptOutput oref 
-                (L.Redeemer $ PlutusTx.toBuiltinData OnChain.Cancel) 
-             <> Constraints.mustPayToPubKey pkh (o ^. LTX.decoratedTxOutValue)
-             <> Constraints.mustBeSignedBy pkh
+      -- Construct transaction to spend utxo and refund value back to this wallet
+      let (oref, o) = head . Map.toList $ utxos
 
-  -- Submit transaction
-  PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
+          lookups = Constraints.typedValidatorLookups (OnChain.validatorInstance param)
+                 <> Constraints.plutusV2MintingPolicy (TradeNft.policy policyParams)
+                 <> Constraints.unspentOutputs (Map.singleton oref o)
+                 <> Constraints.unspentOutputs (Map.singleton walletOref walletOut)
 
-  -- Update order book (remove an order)
-  let newOb = removeLimitOrder orderToCancel orderBook
-  PC.tell [newOb]
-  PC.logInfo @P.String $ printf "REMOVED LIQUIDITY"
+          tx      = Constraints.mustSpendScriptOutput oref 
+                    (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Cancel orderNft) 
+                 <> Constraints.mustPayToPubKey pkh (o ^. LTX.decoratedTxOutValue <> negate nftVal)
+                 <> Constraints.mustBeSignedBy pkh
+                 <> Constraints.mustMintValueWithRedeemer policyRedeemer (negate nftVal)
+
+      -- Submit transaction
+      PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
+
+      -- Update order book (remove an order)
+      let newOb = removeLimitOrder orderToCancel orderBook
+      PC.tell [newOb]
+      PC.logInfo @P.String $ printf "REMOVED LIQUIDITY"
 
 -- ---------------------------------------------------------------------- 
 -- "trade-assets" contract endpoint
@@ -343,6 +363,7 @@ data RemoveLiquidityArgs = RemoveLiquidityArgs
   , rlAssetB     :: L.AssetClass 
   , rlOrderBook  :: OrderBook
   , rlOrderIndex :: Integer
+  , rlTraderAddr :: LV2.Address
  -- ^ which order to cancel (user may have multiple orders in order book)
   }
   deriving stock (P.Show, Generic)

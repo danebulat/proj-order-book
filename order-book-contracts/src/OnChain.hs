@@ -24,10 +24,10 @@
 
 module OnChain where
 
-import Data.Aeson                (FromJSON, ToJSON)
 import Control.Lens              ((^.))
 import GHC.Generics              (Generic)
 import PlutusTx                  qualified
+import PlutusTx.AssocMap         (keys)
 import PlutusTx.Prelude          hiding (pure, (<$>))
 import Plutus.V2.Ledger.Api      qualified as LV2
 import Plutus.V2.Ledger.Contexts qualified as LV2C
@@ -41,7 +41,6 @@ import Plutus.Script.Utils.V2.Scripts                  (scriptCurrencySymbol)
 
 import Ledger                    qualified as L
 import Ledger.Ada                qualified as Ada
-import Playground.Contract       (ToSchema)
 import OrderBook.Model           (OrderSide(..))
 
 -- ---------------------------------------------------------------------- 
@@ -54,8 +53,7 @@ data Param = Param
     , assetB     :: L.AssetClass 
   -- ^ second asset in trading pair
     }
-    deriving (P.Show, Generic)
-    deriving anyclass (ToJSON, FromJSON, ToSchema)
+    deriving (P.Show)
 
 PlutusTx.makeIsDataIndexed ''Param [('Param, 0)]
 PlutusTx.makeLift ''Param
@@ -89,6 +87,7 @@ data Redeem
         Integer     -- amount of asset to buy/sell in market order
         OrderSide -- is trader buying or selling 
     | Cancel        -- cancel this order and refund trader
+        L.AssetClass
 
 PlutusTx.makeIsDataIndexed ''Redeem [('Spend, 0), ('Cancel, 1)]
 
@@ -140,8 +139,8 @@ mkValidator param dat red ctx = case red of
 
 
     -- Trader wishes to cancel this order and get back their deposit
-    Cancel -> 
-      signedByTrader && fullValueReturned
+    Cancel nftAssetClass -> 
+      signedByTrader && fullValueReturned nftAssetClass && isBurningNft nftAssetClass
   
   where 
     txInfo :: LV2C.TxInfo 
@@ -156,9 +155,9 @@ mkValidator param dat red ctx = case red of
     signedByTrader = traceIfFalse "Wrong signer" $
       LV2C.txSignedBy txInfo $ L.unPaymentPubKeyHash (traderPkh dat)
 
-    fullValueReturned :: Bool 
-    fullValueReturned = traceIfFalse "Full value not returned" $ 
-        LV2C.valuePaidTo txInfo pkh `V.geq` (ownInput ^. LTXV2.outValue)
+    fullValueReturned :: L.AssetClass -> Bool 
+    fullValueReturned nftAssetClass = traceIfFalse "Full value not returned" $ 
+        LV2C.valuePaidTo txInfo pkh `V.geq` (ownInput ^. LTXV2.outValue <> negate (V.assetClassValue nftAssetClass 1))
       where pkh = L.unPaymentPubKeyHash (traderPkh dat)
 
     getInputs :: [LV2C.TxInInfo]
@@ -194,6 +193,14 @@ mkValidator param dat red ctx = case red of
       let expectedAssetB = V.assetClassValue (assetB param) (datAmount dat * tradePrice dat)
       in LV2C.valuePaidTo txInfo (L.unPaymentPubKeyHash $ traderPkh dat) `V.geq` expectedAssetB
       -- NOTE: `geq` being used as trader gets min lovelace as well as assets
+
+    -- Check burning of NFT
+    isBurningNft :: L.AssetClass -> Bool 
+    isBurningNft nftAssetClass = 
+      let mintVal = LV2C.txInfoMint txInfo
+      in if mintVal == mempty
+          then traceError "No value burnt"
+          else mintVal == negate (V.assetClassValue nftAssetClass 1)
 
 -- ---------------------------------------------------------------------- 
 -- Utilities

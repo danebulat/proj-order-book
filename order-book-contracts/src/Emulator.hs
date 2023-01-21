@@ -316,6 +316,7 @@ trace6 = do
     , rlAssetB     = tokenAssetClassB
     , rlOrderBook  = head ob1 
     , rlOrderIndex = 0
+    , rlTraderAddr = mockWalletAddress (knownWallet 1)
     }
   
   void $ waitNSlots 2
@@ -351,6 +352,7 @@ trace7 = do
     , rlAssetB     = tokenAssetClassB
     , rlOrderBook  = head ob1 
     , rlOrderIndex = 0
+    , rlTraderAddr = mockWalletAddress (knownWallet 1)
     }
   
   void $ waitNSlots 2
