@@ -40,7 +40,7 @@ common lang
 
 library
     import: lang
-    other-modules:
+    exposed-modules:
         OnChain
       , OffChain
       , Emulator
@@ -91,22 +91,26 @@ test-suite order-book-tests
     main-is:          Spec.hs
     hs-source-dirs:   test
     other-modules:
+      Spec.Trace
     default-language: Haskell2010
     ghc-options: -Wall -fobject-code -fno-ignore-interface-pragmas -fno-omit-interface-pragmas
     build-depends:
       base >= 4.9 && < 5,
+      order-book-contracts,
       containers,
       data-default,
       freer-extras,
       lens,
       plutus-contract,
       plutus-ledger,
+      plutus-ledger-api -any,
       plutus-tx,
       QuickCheck,
       tasty,
       tasty-hunit,
       tasty-quickcheck,
       text
+
     if !(impl(ghcjs) || os(ghcjs))
       build-depends: plutus-tx-plugin -any
 

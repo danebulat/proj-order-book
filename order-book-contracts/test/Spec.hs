@@ -1,5 +1,9 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 
 module Main where
 
+import Test.Tasty
+import Spec.Trace qualified as Trace
+
 main :: IO ()
-main = print "working..."
+main = defaultMain Trace.tests
