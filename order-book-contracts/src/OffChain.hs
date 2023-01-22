@@ -218,7 +218,7 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
           tx = mconcat [
                     -- Spend script outputs with correct redeemer  
                     Constraints.mustSpendScriptOutput oref 
-                     (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Buy)  
+                     (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Buy nftClass)  
 
                     -- Pay AssetB to each trader's pkh according to their trade 
                  <> Constraints.mustPayToPubKey pkh 
@@ -258,7 +258,7 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
           tx = mconcat [ 
                     -- Spend script outputs with correct redeemer 
                     Constraints.mustSpendScriptOutput oref 
-                      (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Sell)  
+                      (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Sell nftClass)  
 
                     -- Pay AssetA to each trader's pkh according to their trade 
                  <> Constraints.mustPayToPubKey pkh 

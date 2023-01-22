@@ -75,7 +75,6 @@ data Dat = Dat
    -- ^ used to filter inputs under this script address
     }
 
---PlutusTx.makeIsDataIndexed ''OCOrderSide [('OCBuy, 0), ('OCSell, 1)]
 PlutusTx.makeIsDataIndexed ''Dat [('Dat, 0)]
 
 -- ---------------------------------------------------------------------- 
@@ -83,10 +82,16 @@ PlutusTx.makeIsDataIndexed ''Dat [('Dat, 0)]
 -- ---------------------------------------------------------------------- 
 
 data Redeem 
-    = Spend         -- spend utxo to execute a trade
-        Integer     -- amount of asset to buy/sell in market order
-        OrderSide -- is trader buying or selling 
-    | Cancel        -- cancel this order and refund trader
+    = Spend         
+   -- ^ spend utxo to execute a trade
+        Integer      
+     -- ^ amount of asset to buy/sell in market order
+        OrderSide
+     -- ^ whether trader buying or selling 
+        L.AssetClass
+     -- ^ this output's nft (checks burning)
+    | Cancel         
+   -- ^ cancel this order and refund trader
         L.AssetClass
 
 PlutusTx.makeIsDataIndexed ''Redeem [('Spend, 0), ('Cancel, 1)]
@@ -104,18 +109,13 @@ instance Scripts.ValidatorTypes Trade where
 -- Validator script
 -- ---------------------------------------------------------------------- 
 
--- TODO: Strategy for handling partially filled orders
-
 {-# INLINEABLE mkValidator #-}
 mkValidator :: Param -> Dat -> Redeem -> LV2.ScriptContext -> Bool 
 mkValidator param dat red ctx = case red of 
-    -- TODO: Reference input to check bid/ask prices
 
-    Spend amountToTrade redSide ->
+    Spend amountToTrade redSide nftClass ->
       case redSide of 
 
-        -- TODO: Check utxo has NFT 
-        
         -- UTXO has deposited AssetA and wants to trade for AssetB
         -- I.e. Deposited ADA to receive USD
         Buy -> 
@@ -124,8 +124,9 @@ mkValidator param dat red ctx = case red of
           -- Check the tx matches the amount of assets to trade
           checkAmountToTrade amountToTrade   &&
           -- Check traderPkh receives datAmount of AssetB
-          checkAmountSentToTraderAssetB 
-
+          checkAmountSentToTraderAssetB      &&
+          -- Check if this output's nft is burnt
+          isBurningNft nftClass 
 
         -- UTXO has deposited AssetB and wants to trade for AssetA
         -- I.e. Deposited USD to receive ADA
@@ -135,8 +136,9 @@ mkValidator param dat red ctx = case red of
           -- Check the tx matches the amount of assets to trade
           checkAmountToTrade amountToTrade  &&
           -- Check traderPkh receives datAmount of AssetA
-          checkAmountSentToTraderAssetA
-
+          checkAmountSentToTraderAssetA     &&
+          -- Check if this output's nft is burnt
+          isBurningNft nftClass 
 
     -- Trader wishes to cancel this order and get back their deposit
     Cancel nftAssetClass -> 
@@ -197,11 +199,13 @@ mkValidator param dat red ctx = case red of
 
     -- Check burning of NFT
     isBurningNft :: L.AssetClass -> Bool 
-    isBurningNft nftAssetClass = 
+    isBurningNft nftAssetClass = traceIfFalse "NFT not burnt" $
       let mintVal = LV2C.txInfoMint txInfo
       in if mintVal == mempty
           then traceError "No value burnt"
-          else mintVal == negate (V.assetClassValue nftAssetClass 1)
+          -- Multiple NFTs can be burnt in a single transaction, so check that 
+          -- this output's NFT is one of the values being burnt.
+          else V.assetClassValueOf mintVal nftAssetClass == (-1) 
 
 -- ---------------------------------------------------------------------- 
 -- Utilities
