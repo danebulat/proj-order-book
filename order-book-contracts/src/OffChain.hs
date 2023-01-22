@@ -12,37 +12,38 @@
 
 module OffChain where
 
-import Control.Lens                   ((^.))
-import Data.Aeson                     (FromJSON, ToJSON)
-import Data.Map                       (Map)
-import Data.Map                       qualified as Map 
-import Data.Maybe                     (fromJust)
-import Data.Text                      qualified as T
-import GHC.Generics                   (Generic)
-import Text.Printf                    (printf)
+import Control.Monad              (when)
+import Control.Lens               ((^.))
+import Data.Aeson                 (FromJSON, ToJSON)
+import Data.Map                   (Map)
+import Data.Map                   qualified as Map 
+import Data.Maybe                 (fromJust)
+import Data.Text                  qualified as T
+import GHC.Generics               (Generic)
+import Text.Printf                (printf)
 
-import PlutusTx                       qualified
-import PlutusTx.Prelude               hiding ((<>))
-import Plutus.V2.Ledger.Api           qualified as LV2
-import Plutus.V2.Ledger.Contexts      qualified as LV2C
-import Plutus.V1.Ledger.Value         qualified as V
-import Prelude                        qualified as P 
-import Prelude                        ((<>))
+import PlutusTx                   qualified
+import PlutusTx.Prelude           hiding ((<>))
+import Plutus.V2.Ledger.Api       qualified as LV2
+import Plutus.V2.Ledger.Contexts  qualified as LV2C
+import Plutus.V1.Ledger.Value     qualified as V
+import Prelude                    qualified as P 
+import Prelude                    ((<>))
 
-import Ledger                         qualified as L
-import Ledger.Ada                     qualified as Ada
-import Ledger.Constraints             qualified as Constraints 
-import Ledger.Tx                      qualified as LTX
-import Plutus.Contract                (type (.\/))
-import Plutus.Contract                qualified as PC 
+import Ledger                     qualified as L
+import Ledger.Ada                 qualified as Ada
+import Ledger.Constraints         qualified as Constraints 
+import Ledger.Tx                  qualified as LTX
+import Plutus.Contract            (type (.\/))
+import Plutus.Contract            qualified as PC 
 
-import OnChain                        qualified 
-import OnChain                        (Dat(..), Param(..), scriptParamAddress)
-import TradeNft                       qualified
-import TradeNft                       (PolicyParam(..))
-import OrderBook.Model                (OrderSide(..), OrderBook(..), Order(..), OrderType(..))
-import OrderBook.Matching             qualified as Matching
-import OrderBook.Utils                (addLimitOrders, mkLimitOrder, getFlattenedOrders, removeLimitOrder)
+import OnChain                    qualified 
+import OnChain                    (Dat(..), Param(..), scriptParamAddress)
+import TradeNft                   qualified
+import TradeNft                   (PolicyParam(..))
+import OrderBook.Model            (OrderSide(..), OrderBook(..), Order(..), OrderType(..))
+import OrderBook.Matching         qualified as Matching
+import OrderBook.Utils            (addLimitOrders, mkLimitOrder, getFlattenedOrders, removeLimitOrder)
 
 -- ====================================================================== 
 -- Contract endpoins
@@ -55,55 +56,78 @@ import OrderBook.Utils                (addLimitOrders, mkLimitOrder, getFlattene
 addLiquidity :: PC.Promise [OrderBook] TradeSchema T.Text ()
 addLiquidity = PC.endpoint @"add-liquidity" $ \args -> do 
     
-    -- TODO: Check trade price doen't exceed bid/ask 
+    -- Check if limit trade is valid
+    validLimitPrice <- isValidLimitPrice args
 
-    -- Get wallet utxo to provide as redeemer in TradeNft policy
-    utxos <- PC.utxosAt (alTraderAddr args)
-    pkh   <- PC.ownFirstPaymentPubKeyHash
+    when (not validLimitPrice) $
+      PC.logError @P.String $ printf "Invalid limit price"
 
-    -- Return if no utxos available to spend
-    case Map.keys utxos of 
-      [] -> PC.logError @P.String $ printf "No UTxOs found at wallet address"
-      (oref : _) -> do 
-        
-        -- For output at script address
-        (dat, param) <- getDatumParamFromArgs args
-        val <- getValueToPay args
+    when validLimitPrice $ do
+      -- Get wallet utxo to provide as redeemer in TradeNft policy
+      utxos <- PC.utxosAt (alTraderAddr args)
+      pkh   <- PC.ownFirstPaymentPubKeyHash
 
-        -- For minting Trade NFT
-        let policyRedeemer = L.Redeemer $ PlutusTx.toBuiltinData oref
-            tokenName      = calculateTokenNameHash oref
-            policyParam    = PolicyParam 
-              { ppAssetA        = alAssetA args
-              , ppAssetB        = alAssetB args 
-              , ppScriptAddress = OnChain.scriptParamAddress param
-              }
-            nftVal = LV2.singleton (TradeNft.curSymbol policyParam) (LV2.TokenName tokenName) 1
-            nftAssetClass = V.assetClass (TradeNft.curSymbol policyParam) (LV2.TokenName tokenName)
+      -- Return if no utxos available to spend
+      case Map.keys utxos of 
+        [] -> PC.logError @P.String $ printf "No UTxOs found at wallet address"
+        (oref : _) -> do 
+          
+          -- For output at script address
+          (dat, param) <- getDatumParamFromArgs args
+          val <- getValueToPay args
 
-        PC.logInfo @P.String $ printf "Value to deposit: %s" (P.show val)
-        PC.logInfo @P.String $ printf "NFT to deposit: %s" (P.show nftVal)
+          -- For minting Trade NFT
+          let policyRedeemer = L.Redeemer $ PlutusTx.toBuiltinData oref
+              tokenName      = calculateTokenNameHash oref
+              policyParam    = PolicyParam 
+                { ppAssetA        = alAssetA args
+                , ppAssetB        = alAssetB args 
+                , ppScriptAddress = OnChain.scriptParamAddress param
+                }
+              nftVal = LV2.singleton (TradeNft.curSymbol policyParam) (LV2.TokenName tokenName) 1
+              nftAssetClass = V.assetClass (TradeNft.curSymbol policyParam) (LV2.TokenName tokenName)
 
-        -- Construct tx
-        let
-          lookups = Constraints.typedValidatorLookups (OnChain.validatorInstance param)
-               P.<> Constraints.plutusV2MintingPolicy (TradeNft.policy policyParam)
-               P.<> Constraints.unspentOutputs utxos
-           
-          tx      = Constraints.mustPayToTheScriptWithInlineDatum dat (val P.<> nftVal)
-               P.<> Constraints.mustMintValueWithRedeemer policyRedeemer nftVal
+          PC.logInfo @P.String $ printf "Value to deposit: %s" (P.show val)
+          PC.logInfo @P.String $ printf "NFT to deposit: %s" (P.show nftVal)
 
-        -- NOTE: Min lovelace added to tx when balancing
-        PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
-        
-        -- Add NFT to order book along with order details
-        let ob    = alOrderBook args
-            order = mkLimitOrder (alTradePrice args) nftAssetClass pkh (alAmount args) (alSide args)
-            newOb = addLimitOrders [order] ob 
+          -- Construct tx
+          let lookups = Constraints.typedValidatorLookups (OnChain.validatorInstance param)
+                     <> Constraints.plutusV2MintingPolicy (TradeNft.policy policyParam)
+                     <> Constraints.unspentOutputs utxos
+             
+              tx      = Constraints.mustPayToTheScriptWithInlineDatum dat (val P.<> nftVal)
+                     <> Constraints.mustMintValueWithRedeemer policyRedeemer nftVal
 
-        -- Send new order book outside contract monad
-        PC.tell [newOb]
-        PC.logInfo @P.String $ printf "DEPOSITED TO SCRIPT ADDRESS"
+          -- NOTE: Min lovelace added to tx when balancing
+          PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
+          
+          -- Add NFT to order book along with order details
+          let ob    = alOrderBook args
+              order = mkLimitOrder (alTradePrice args) nftAssetClass pkh (alAmount args) (alSide args)
+              newOb = addLimitOrders [order] ob 
+
+          -- Send new order book outside contract monad
+          PC.tell [newOb]
+          PC.logInfo @P.String $ printf "DEPOSITED TO SCRIPT ADDRESS"
+
+isValidLimitPrice :: AddLiquidityArgs -> PC.Contract [OrderBook] TradeSchema T.Text Bool
+isValidLimitPrice args = 
+  case s of 
+    -- tPrice < ask 
+    Buy ->  let mCurAsk = obCurAsk ob 
+            in case mCurAsk of 
+                 Nothing     -> return True 
+                 Just curAsk -> return $ p < curAsk && incIsDivisible
+    -- tPrice > bid
+    Sell -> let mCurBid = obCurBid ob 
+            in case mCurBid of 
+                 Nothing     -> return True
+                 Just curBid -> return $ p > curBid && incIsDivisible 
+  where 
+    p  = alTradePrice args
+    s  = alSide       args 
+    ob = alOrderBook  args
+    incIsDivisible = p `P.mod` obIncrement ob == 0
 
 getValueToPay :: AddLiquidityArgs -> PC.Contract [OrderBook] TradeSchema T.Text V.Value
 getValueToPay args = case alSide args of
@@ -272,7 +296,7 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
                  <> Constraints.mustMintValueWithRedeemer 
                       (L.Redeemer $ PlutusTx.toBuiltinData oref) 
                       (negate $ V.assetClassValue nftClass 1)
-
+                     
                     | (pkh, v, amt, oref, _, nftClass) <- utxoData ]
                     -- NOTE: Min Lovelace also goes to own pkh
 
