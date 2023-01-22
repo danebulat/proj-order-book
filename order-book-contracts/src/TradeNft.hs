@@ -64,7 +64,9 @@ PlutusTx.makeLift ''PolicyParam
 mkPolicy :: PolicyParam -> LV2.TxOutRef -> LV2C.ScriptContext -> Bool
 mkPolicy param utxo ctx = case mintedValue of 
     [(_cs, tn, n)] -> validateMint tn n
-    _other         -> False
+    -- If a tx is spending multiple utxos and needs to burn multiple NFTs
+    vs             -> foldl (\acc (_, _, amt) -> if not acc then acc else amt == (-1)) True vs
+    _other         -> traceIfFalse "Wrong minted value" False
   where 
     txInfo :: LV2C.TxInfo
     txInfo = LV2C.scriptContextTxInfo ctx

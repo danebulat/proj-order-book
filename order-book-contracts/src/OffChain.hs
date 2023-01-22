@@ -28,12 +28,10 @@ import Plutus.V2.Ledger.Contexts      qualified as LV2C
 import Plutus.V1.Ledger.Value         qualified as V
 import Prelude                        qualified as P 
 import Prelude                        ((<>))
-import Plutus.Script.Utils.V2.Scripts qualified as ScriptUtilsV2
 
 import Ledger                         qualified as L
 import Ledger.Ada                     qualified as Ada
 import Ledger.Constraints             qualified as Constraints 
-import Ledger.Constraints.TxConstraints qualified as TXConstraints             
 import Ledger.Tx                      qualified as LTX
 import Plutus.Contract                (type (.\/))
 import Plutus.Contract                qualified as PC 
@@ -193,6 +191,11 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
   let targetAmt = taAmount args
       orderBook = taOrderBook args
       param     = Param { assetA = taAssetA args, assetB = taAssetB args }
+      policyParams = PolicyParam 
+           { ppAssetA = taAssetA args
+           , ppAssetB = taAssetB args
+           , ppScriptAddress = OnChain.scriptParamAddress param
+           }
 
   case taSide args of
     Buy -> do
@@ -202,25 +205,32 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
       (orderNfts, newOb) <- takeOrdersForBuy targetAmt orderBook 
       utxosAtScript      <- PC.utxosAt (OnChain.scriptParamAddress param)
       utxos              <- filterNftUTxOs utxosAtScript orderNfts
-       
+      
       -- Get data from filtered UTxOs (pkh, val, amount, oref, tradePrice)
-      utxoData <- getUTxOData utxos
+      utxoData <- getUTxOData utxos orderNfts
+      PC.logInfo @P.String $ printf "ORDER NFTS:\n" ++ P.show orderNfts 
 
       -- Construct transaction 
       let lookups = Constraints.unspentOutputs utxos
                  <> Constraints.typedValidatorLookups (OnChain.validatorInstance param)
+                 <> Constraints.plutusV2MintingPolicy (TradeNft.policy policyParams)
            
           tx = -- Spend script outputs with correct redeemer 
                  mconcat [ Constraints.mustSpendScriptOutput oref 
                              (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Buy)  
-                           | (_, _, amt, oref, _) <- utxoData ]
+                           | (_, _, amt, oref, _, _) <- utxoData ]
                -- Pay AssetB to each trader's pkh according to their trade 
               <> mconcat [ Constraints.mustPayToPubKey pkh 
                              (V.assetClassValue (taAssetB args) (amt * tp))
-                           | (pkh, _, amt, _, tp) <- utxoData ]
+                           | (pkh, _, amt, _, tp, _) <- utxoData ]
                -- Pay AssetA to own pkh (consume value of taken utxos)
-              <> mconcat [ Constraints.mustPayToPubKey ownPkh v 
-                           | (_, v, _, _, _) <- utxoData ]
+              <> mconcat [ Constraints.mustPayToPubKey ownPkh (v <> negate (V.assetClassValue nftClass 1))
+                           | (_, v, _, _, _, nftClass) <- utxoData ]
+               -- Burn NFTs at script UTxOs
+              <> mconcat [ Constraints.mustMintValueWithRedeemer 
+                            (L.Redeemer $ PlutusTx.toBuiltinData oref) 
+                            (negate $ V.assetClassValue nftClass 1)
+                           | (_, _, _, oref, _, nftClass) <- utxoData ]
                -- NOTE: Min Lovelace also goes to own pkh
 
       -- Submit transaction and tell new order book
@@ -236,23 +246,29 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
       utxos              <- filterNftUTxOs utxosAtScript orderNfts
       
       -- Get data from filtered UTxOs (pkh, val, amount, oref, tradePrice)
-      utxoData <- getUTxOData utxos
+      utxoData <- getUTxOData utxos orderNfts
 
       -- Construct transaction
       let lookups = Constraints.unspentOutputs utxos 
                  <> Constraints.typedValidatorLookups (OnChain.validatorInstance param)
+                 <> Constraints.plutusV2MintingPolicy (TradeNft.policy policyParams)
 
           tx = -- Spend script outputs with correct redeemer 
                mconcat [ Constraints.mustSpendScriptOutput oref 
                            (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Sell)  
-                         | (_, _, amt, oref, _) <- utxoData ]
+                         | (_, _, amt, oref, _, _) <- utxoData ]
               -- Pay AssetA to each trader's pkh according to their trade 
             <> mconcat [ Constraints.mustPayToPubKey pkh 
-                             (V.assetClassValue (taAssetA args) amt)
-                           | (pkh, _, amt, _, _) <- utxoData ]
+                           (V.assetClassValue (taAssetA args) amt)
+                         | (pkh, _, amt, _, _, _) <- utxoData ]
              -- Pay AssetB to own pkh (consume value of taken utxos)
-            <> mconcat [ Constraints.mustPayToPubKey ownPkh v 
-                           | (_, v, _, _, _) <- utxoData ]
+            <> mconcat [ Constraints.mustPayToPubKey ownPkh (v <> negate (V.assetClassValue nftClass 1))
+                         | (_, v, _, _, _, nftClass) <- utxoData ]
+             -- Burn NFTs at script UTxOs
+            <> mconcat [ Constraints.mustMintValueWithRedeemer 
+                           (L.Redeemer $ PlutusTx.toBuiltinData oref) 
+                           (negate $ V.assetClassValue nftClass 1)
+                         | (_, _, _, oref, _, nftClass) <- utxoData ]
                -- NOTE: Min Lovelace also goes to own pkh
 
       -- Submit transaction and tell new order book
@@ -282,9 +298,10 @@ filterNftUTxOs utxos nfts = return $
 -- Get data from filtered UTxOs to construct the transaction
 getUTxOData 
   :: Map LTX.TxOutRef LTX.DecoratedTxOut 
+  -> [L.AssetClass]                                  -- order NFTs 
   -> PC.Contract [OrderBook] TradeSchema T.Text 
-      [(L.PaymentPubKeyHash, V.Value, Integer, LTX.TxOutRef, Integer)]
-getUTxOData utxos = return $ foldl (\acc (oref, decTxOut) ->
+      [(L.PaymentPubKeyHash, V.Value, Integer, LTX.TxOutRef, Integer, L.AssetClass)]
+getUTxOData utxos nfts = return $ foldl (\acc (oref, decTxOut) ->
   let v  = decTxOut ^. LTX.decoratedTxOutValue
       (_, dq) = LTX._decoratedTxOutScriptDatum decTxOut 
   in case dq of 
@@ -294,9 +311,12 @@ getUTxOData utxos = return $ foldl (\acc (oref, decTxOut) ->
                           , v                        -- utxo value
                           , OnChain.datAmount  d'    -- amount of asset A trading
                           , oref                     -- outref
-                          , OnChain.tradePrice d')]  -- price to trade
+                          , OnChain.tradePrice d'    -- price to trade
+                          , getNft v) ]              -- utxo nft asset class
         Nothing -> acc
     _other -> acc) [] (Map.toList utxos)
+    where 
+      getNft v = P.foldl1 (\acc nft -> if V.assetClassValueOf v nft == 1 then nft else acc) nfts
 
 -- Take orders from order book for SELL market order
 -- Return associated NFTs and updated order book
@@ -304,7 +324,7 @@ takeOrdersForSell
   :: Integer -> OrderBook 
   -> PC.Contract [OrderBook] TradeSchema T.Text ([V.AssetClass], OrderBook)
 takeOrdersForSell targetAmt ob = do 
-  let curBid = fromJust $ obCurBid ob
+  let curBid         = fromJust $ obCurBid ob
       (_, os, newOb) = Matching.takeOrdersForSell curBid targetAmt ob (0,[])
   return (getNftFromOrder <$> os, newOb)
 

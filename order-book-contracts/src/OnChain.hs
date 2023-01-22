@@ -191,7 +191,8 @@ mkValidator param dat red ctx = case red of
     checkAmountSentToTraderAssetB :: Bool
     checkAmountSentToTraderAssetB = traceIfFalse "Wrong amount sent to utxo trader B" $
       let expectedAssetB = V.assetClassValue (assetB param) (datAmount dat * tradePrice dat)
-      in LV2C.valuePaidTo txInfo (L.unPaymentPubKeyHash $ traderPkh dat) `V.geq` expectedAssetB
+      in LV2C.valuePaidTo txInfo 
+          (L.unPaymentPubKeyHash $ traderPkh dat) `V.geq` expectedAssetB
       -- NOTE: `geq` being used as trader gets min lovelace as well as assets
 
     -- Check burning of NFT
