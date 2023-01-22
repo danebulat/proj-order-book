@@ -215,23 +215,25 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
                  <> Constraints.typedValidatorLookups (OnChain.validatorInstance param)
                  <> Constraints.plutusV2MintingPolicy (TradeNft.policy policyParams)
            
-          tx = -- Spend script outputs with correct redeemer 
-                 mconcat [ Constraints.mustSpendScriptOutput oref 
-                             (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Buy)  
-                           | (_, _, amt, oref, _, _) <- utxoData ]
-               -- Pay AssetB to each trader's pkh according to their trade 
-              <> mconcat [ Constraints.mustPayToPubKey pkh 
-                             (V.assetClassValue (taAssetB args) (amt * tp))
-                           | (pkh, _, amt, _, tp, _) <- utxoData ]
-               -- Pay AssetA to own pkh (consume value of taken utxos)
-              <> mconcat [ Constraints.mustPayToPubKey ownPkh (v <> negate (V.assetClassValue nftClass 1))
-                           | (_, v, _, _, _, nftClass) <- utxoData ]
-               -- Burn NFTs at script UTxOs
-              <> mconcat [ Constraints.mustMintValueWithRedeemer 
-                            (L.Redeemer $ PlutusTx.toBuiltinData oref) 
-                            (negate $ V.assetClassValue nftClass 1)
-                           | (_, _, _, oref, _, nftClass) <- utxoData ]
-               -- NOTE: Min Lovelace also goes to own pkh
+          tx = mconcat [
+                    -- Spend script outputs with correct redeemer  
+                    Constraints.mustSpendScriptOutput oref 
+                     (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Buy)  
+
+                    -- Pay AssetB to each trader's pkh according to their trade 
+                 <> Constraints.mustPayToPubKey pkh 
+                      (V.assetClassValue (taAssetB args) (amt * tp))
+
+                    -- Pay AssetA to own pkh (consume value of taken utxos)
+                 <> Constraints.mustPayToPubKey ownPkh 
+                      (v <> negate (V.assetClassValue nftClass 1))
+
+                    -- Burn NFTs at script UTxOs
+                 <> Constraints.mustMintValueWithRedeemer 
+                     (L.Redeemer $ PlutusTx.toBuiltinData oref) 
+                     (negate $ V.assetClassValue nftClass 1)
+                    | (pkh, v, amt, oref, tp, nftClass) <- utxoData ]
+                    -- NOTE: Min Lovelace also goes to own pkh
 
       -- Submit transaction and tell new order book
       PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx
@@ -253,23 +255,26 @@ tradeAssets = PC.endpoint @"trade-assets" $ \args -> do
                  <> Constraints.typedValidatorLookups (OnChain.validatorInstance param)
                  <> Constraints.plutusV2MintingPolicy (TradeNft.policy policyParams)
 
-          tx = -- Spend script outputs with correct redeemer 
-               mconcat [ Constraints.mustSpendScriptOutput oref 
-                           (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Sell)  
-                         | (_, _, amt, oref, _, _) <- utxoData ]
-              -- Pay AssetA to each trader's pkh according to their trade 
-            <> mconcat [ Constraints.mustPayToPubKey pkh 
-                           (V.assetClassValue (taAssetA args) amt)
-                         | (pkh, _, amt, _, _, _) <- utxoData ]
-             -- Pay AssetB to own pkh (consume value of taken utxos)
-            <> mconcat [ Constraints.mustPayToPubKey ownPkh (v <> negate (V.assetClassValue nftClass 1))
-                         | (_, v, _, _, _, nftClass) <- utxoData ]
-             -- Burn NFTs at script UTxOs
-            <> mconcat [ Constraints.mustMintValueWithRedeemer 
-                           (L.Redeemer $ PlutusTx.toBuiltinData oref) 
-                           (negate $ V.assetClassValue nftClass 1)
-                         | (_, _, _, oref, _, nftClass) <- utxoData ]
-               -- NOTE: Min Lovelace also goes to own pkh
+          tx = mconcat [ 
+                    -- Spend script outputs with correct redeemer 
+                    Constraints.mustSpendScriptOutput oref 
+                      (L.Redeemer $ PlutusTx.toBuiltinData $ OnChain.Spend amt Sell)  
+
+                    -- Pay AssetA to each trader's pkh according to their trade 
+                 <> Constraints.mustPayToPubKey pkh 
+                      (V.assetClassValue (taAssetA args) amt)
+
+                    -- Pay AssetB to own pkh (consume value of taken utxos)
+                 <> Constraints.mustPayToPubKey ownPkh 
+                      (v <> negate (V.assetClassValue nftClass 1))
+
+                    -- Burn NFTs at script UTxOs
+                 <> Constraints.mustMintValueWithRedeemer 
+                      (L.Redeemer $ PlutusTx.toBuiltinData oref) 
+                      (negate $ V.assetClassValue nftClass 1)
+
+                    | (pkh, v, amt, oref, _, nftClass) <- utxoData ]
+                    -- NOTE: Min Lovelace also goes to own pkh
 
       -- Submit transaction and tell new order book
       PC.mkTxConstraints lookups tx >>= PC.adjustUnbalancedTx >>= PC.yieldUnbalancedTx

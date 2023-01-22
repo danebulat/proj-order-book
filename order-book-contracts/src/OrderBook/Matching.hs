@@ -4,7 +4,6 @@ module OrderBook.Matching where
 
 import Data.Map               qualified as Map
 import Data.Maybe             (fromJust)
-import Plutus.V1.Ledger.Value qualified as V
 
 import OrderBook.Model
 import OrderBook.Utils

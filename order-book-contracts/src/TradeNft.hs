@@ -9,25 +9,21 @@
 {-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE ImportQualifiedPost   #-}
 
-{-# OPTIONS_GHC -fno-warn-unused-imports   #-}
+--{-# OPTIONS_GHC -fno-warn-unused-imports   #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
 module TradeNft where
 
-import Control.Lens                                    ((^.))
 import PlutusTx 
 import PlutusTx.Prelude 
-import Ledger                                          qualified as L
-import Plutus.V2.Ledger.Api                            qualified as LV2
-import Plutus.V2.Ledger.Contexts                       qualified as LV2C 
-import Plutus.V2.Ledger.Tx                             qualified as LTXV2
-import Plutus.Script.Utils.V2.Scripts                  qualified as UtilsScriptsV2
-import Plutus.Script.Utils.V2.Typed.Scripts.Validators qualified as UtilsScriptsV2 
-import Plutus.Script.Utils.V2.Typed.Scripts            qualified as Scripts
-import Prelude                                         qualified as P
-import Plutus.V1.Ledger.Interval                       qualified as LV1Interval
-import Plutus.V1.Ledger.Value                          qualified as V
-import Ledger.Ada                                      qualified as Ada
+import Ledger                               qualified as L
+import Plutus.V2.Ledger.Api                 qualified as LV2
+import Plutus.V2.Ledger.Contexts            qualified as LV2C 
+import Plutus.Script.Utils.V2.Scripts       qualified as UtilsScriptsV2
+import Plutus.Script.Utils.V2.Typed.Scripts qualified as Scripts
+import Prelude                              qualified as P
+import Plutus.V1.Ledger.Value               qualified as V
+import Ledger.Ada                           qualified as Ada
 
 import OnChain         (Dat(..), getDatum)
 import OrderBook.Model (OrderSide(..))
@@ -64,15 +60,18 @@ PlutusTx.makeLift ''PolicyParam
 mkPolicy :: PolicyParam -> LV2.TxOutRef -> LV2C.ScriptContext -> Bool
 mkPolicy param utxo ctx = case mintedValue of 
     [(_cs, tn, n)] -> validateMint tn n
-    -- If a tx is spending multiple utxos and needs to burn multiple NFTs
-    vs             -> foldl (\acc (_, _, amt) -> if not acc then acc else amt == (-1)) True vs
-    _other         -> traceIfFalse "Wrong minted value" False
+    mintedVals     -> checkBurnt mintedVals
   where 
     txInfo :: LV2C.TxInfo
     txInfo = LV2C.scriptContextTxInfo ctx
 
     mintFlattened :: [(LV2.CurrencySymbol, LV2.TokenName, Integer)]
     mintFlattened = V.flattenValue (LV2C.txInfoMint txInfo)
+
+    -- Validate a burning tx where multiple NFTs can be burnt 
+    checkBurnt :: [(LV2.CurrencySymbol, LV2.TokenName, Integer)] -> Bool
+    checkBurnt vs = traceIfFalse "Wrong amount minted" $ 
+      foldl (\acc (_, _, amt) -> if not acc then acc else amt == (-1)) True vs
     
     -- Check minted currency symbol is this validor script currency symbol
     mintedValue :: [(LV2.CurrencySymbol, LV2.TokenName, Integer)]
