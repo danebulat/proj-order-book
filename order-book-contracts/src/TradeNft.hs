@@ -9,7 +9,6 @@
 {-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE ImportQualifiedPost   #-}
 
---{-# OPTIONS_GHC -fno-warn-unused-imports   #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
 module TradeNft where
