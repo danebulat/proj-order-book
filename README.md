@@ -3,7 +3,7 @@
 ## Overview
 
 This repository is my submission for the final project in the Cardano Developer Professional 
-course, delivered by EMURGO.
+course delivered by EMURGO.
 
 It is a decentralised application that implements a basic order book. Users are able to 
 submit limit orders to buy or sell a particular currency pair at a specific price. This 
@@ -27,9 +27,28 @@ The project includes:
   can be taken by users (wallets). These endpoints construct transactions which are then 
   submitted to the blockchain.
 
-## Participants and actions
+## Participants 
 
-Section describing who will interact with the Dapp.
+The Dapp will be used by traders whose goal is to trade one asset for another at 
+specific price levels. Traders who wish to swap one asset for another at a specific 
+price level will submit limit orders by depositing liquidity to the script address. 
+
+On the other hand, traders who want to simply trade one asset for another at any 
+price level will submit market orders. In this case, assets are bought and sold 
+at the order book's current bid and ask prices.
+
+Dapp participants are summarised here:
+
+- **Liquidity providers** (limit orders)<br>
+  Users who want to buy or sell an asset for a particular price will produce outputs 
+  at the script address in the form of limit orders. These outputs will store one of 
+  the assets in the currency pair being traded. The script output datum stores 
+  information, such as the limit price to trade at, in order to satisfy limit orders.
+
+- **Traders** (market orders)<br>
+  Users who want to trade an asset pair, or swap one asset for another, will submit 
+  market orders. A market order will swap one asset with another (a currency pair 
+  is chosen) according to the order book's current bid or ask price.
 
 ## Actions
 
@@ -54,11 +73,21 @@ are:
 
 ## NFT usage
 
-Section to describe how NFTs are used in the application.
+Each script output will store an NFT which is used to uniquely identify wallets (traders) 
+interacting with the application.
 
-## eUTxO diagrams
+NFT data is stored off-chain in the order book structure to determine which script 
+outputs will be consumed at specific price levels. For example, a market order is 
+constructed by querying the order book off-chain, which will return a list of limit orders
+at the current bid/ask price. Limit orders retrieved off-chain store an NFT which directly 
+"points" to the output to be consumed on-chain.
 
-### Adding liquidity
+The parameterised NFT policy script also checks whether the correct assets are being 
+deposited when an output is produced at the script address.
+
+## eUTxO Diagrams
+
+### Adding Liquidity
 
 ![add-liquidity utxo diagram](doc/img/utxo-add-liquidity-tx.png)
 
@@ -72,7 +101,7 @@ minting policy script and assets from the wallet who wants to trade. The transac
 produces an output at the parameterized script address for the currency pair being traded. It
 stores an NFT to uniquly identify the ouput along with an asset to be traded.
 
-### Removing liquidity
+### Removing Liquidity
 
 ![remove-liquidity utxo diagram](doc/img/utxo-remove-liquidity-tx.png)
 
@@ -86,7 +115,7 @@ to now burn the NFT stored in the input UTxO being consumed.
 
 After successful validation, deposited liquidity will be sent back to the original wallet.
 
-### Trading assets
+### Trading Assets
 
 ![trade assets utxo diagram](doc/img/utxo-trade-assets-tx.png)
 
@@ -103,6 +132,75 @@ The result of this trade will see Asset B sent to the wallets who produced the s
 being consumed in this transaction. The wallet executing the market order will receive Asset A in 
 return. The smart contracts will guarentee that Asset A is swapped at the correct limit price 
 (exchange rate).
+
+## Running Test Suite and Emulator Traces
+
+### Running test suite with `cabal run`
+
+Clone the `plutus-apps` repository and checkout tag `v1.0.0`. The same tag is referenced in this 
+project's `cabal.project` file.
+
+```
+git clone https://github.com/input-output-hk/plutus-apps
+cd plutus-apps
+git checkout v1.0.0 
+```
+
+Enter a `nix-shell` environment. Make sure to follow the setup instructions provided in
+`plutus-apps` to correctly set up Nix and the IOHK hydra binaries.
+
+```
+nix-shell
+```
+
+Within `nix-shell` clone this repository somewhere on your filesystem and build the project.
+
+```
+# Step outside plutus-apps directory
+cd ..
+
+# Clone this repository and enter the order book contracts package
+git clone https://github.com/danebulat/proj-order-book 
+cd proj-order-book/order-book-contracts
+
+# Build the library and test suite 
+cabal build 
+```
+
+Now we can run the test suite directly with `cabal`:
+
+```
+cabal run test:order-book-tests
+```
+
+### Running test suite and emulator traces with GHCi
+
+After building the project, its test suite can be run within GHCi by using the 
+following commands:
+
+```
+cabal repl test:order-book-tests
+
+> :l test/Spec/Trace.hs
+
+# Run tests in IO monad 
+> runTests 
+```
+
+The `test/Spec/Trace.hs` module also includes individual functions for running emulator 
+traces which are called in the test suite. Seven functions are defined and named `testN` 
+where `N` can be from `1` to `7`.
+
+Use the following commands to run individual emulator trace functions:
+
+```
+cabal repl test:order-book-tests 
+
+> :l test/Spec/Trace.hs 
+> test1
+  ... 
+> test7
+```
 
 ## Limitations
 
@@ -159,5 +257,5 @@ order book's bid and ask prices.
 ## Improvements
 
 - Partial filling of limit orders<br>
-  Would require a more sophisticated off-chain order book system that can cache both on-chain data
+  Would require a more sophisticated off-chain order book system that can both cache on-chain data
   and monitor the current bid and ask prices of currency pairs.
