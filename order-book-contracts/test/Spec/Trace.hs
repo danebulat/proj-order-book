@@ -433,6 +433,184 @@ predicate7 =
        PCT.walletFundsChange w1 mempty
 
 -- ---------------------------------------------------------------------- 
+-- Trace 8
+-- ---------------------------------------------------------------------- 
+
+trace8 :: Emulator.EmulatorTrace ()
+trace8 = do
+  h1 <- Emulator.activateContractWallet (knownWallet 1) OffChain.contract
+  h2 <- Emulator.activateContractWallet (knownWallet 2) OffChain.contract
+  h3 <- Emulator.activateContractWallet (knownWallet 3) OffChain.contract
+  h4 <- Emulator.activateContractWallet (knownWallet 4) OffChain.contract
+
+  -- Limit order: Sell 10xAssetA @ 3
+  Emulator.callEndpoint @"add-liquidity" h1 $ AddLiquidityArgs 
+   { alAssetA     = tokenAssetClassA
+   , alAssetB     = tokenAssetClassB 
+   , alAmount     = 5 
+   , alSide       = Sell
+   , alTradePrice = 3
+   , alTraderAddr = mockWalletAddress (knownWallet 1)
+   , alOrderBook  = mkEmptyOrderBook 
+   }
+
+  void $ waitNSlots 2
+  ob1 <- Emulator.observableState h1
+  Extras.logInfo @String $ "OBSERVABLE STATE 01:\n" ++ show ob1
+  void $ waitNSlots 2
+
+  -- Limit Order: Sell 5xAssetA @ 4
+  Emulator.callEndpoint @"add-liquidity" h2 $ AddLiquidityArgs 
+    { alAssetA     = tokenAssetClassA
+    , alAssetB     = tokenAssetClassB 
+    , alAmount     = 5 
+    , alSide       = Sell 
+    , alTradePrice = 4
+    , alTraderAddr = mockWalletAddress (knownWallet 2)
+    , alOrderBook  = head ob1 
+    }
+  void $ waitNSlots 2
+  ob2 <- Emulator.observableState h2 
+  Extras.logInfo @String $ "OBSERVABLE STATE 02:\n" ++ show ob2
+  void $ waitNSlots 2
+
+  -- Limit Order: Sell 15xAssetA @ 4
+  Emulator.callEndpoint @"add-liquidity" h3 $ AddLiquidityArgs 
+    { alAssetA     = tokenAssetClassA
+    , alAssetB     = tokenAssetClassB 
+    , alAmount     = 3 
+    , alSide       = Sell 
+    , alTradePrice = 4
+    , alTraderAddr = mockWalletAddress (knownWallet 3)
+    , alOrderBook  = last ob2 
+    }
+  void $ waitNSlots 2
+  ob3 <- Emulator.observableState h3
+  Extras.logInfo @String $ "OBSERVABLE STATE 03:\n" ++ show (last ob3)
+  void $ waitNSlots 2
+
+  -- Market Order: Buy 15XAssetA
+  Emulator.callEndpoint @"trade-assets" h4 $ TradeAssetsArgs 
+    { taAssetA    = tokenAssetClassA 
+    , taAssetB    = tokenAssetClassB 
+    , taAmount    = 10   -- Must match seller amount(s) EXACTLY
+    , taSide      = Buy 
+    , taOrderBook = last ob3 
+    }
+
+  void $ waitNSlots 2
+  ob4 <- Emulator.observableState h4 
+  void $ waitNSlots 2
+  Extras.logInfo @String $ "UPDATED ORDER BOOK:\n" ++ show (last ob4)
+
+predicate8 :: PCT.TracePredicate
+predicate8 = 
+       PCT.walletFundsChange w1 
+       (  N.negate (V.assetClassValue tokenAssetClassA 5)
+       <>           V.assetClassValue tokenAssetClassB 15
+       )
+  .&&. PCT.walletFundsChange w2 
+       (  N.negate (V.assetClassValue tokenAssetClassA 5) 
+       <>           V.assetClassValue tokenAssetClassB 20
+       )
+  .&&. PCT.walletFundsChange w3
+       (  N.negate (V.assetClassValue tokenAssetClassA 3)
+       )
+  .&&. PCT.walletFundsChange w4
+       (            V.assetClassValue tokenAssetClassA 10
+       <> N.negate (V.assetClassValue tokenAssetClassB 35)
+       )
+
+-- ---------------------------------------------------------------------- 
+-- Trace 9
+-- ---------------------------------------------------------------------- 
+
+trace9 :: Emulator.EmulatorTrace ()
+trace9 = do
+  h1 <- Emulator.activateContractWallet (knownWallet 1) OffChain.contract
+  h2 <- Emulator.activateContractWallet (knownWallet 2) OffChain.contract
+  h3 <- Emulator.activateContractWallet (knownWallet 3) OffChain.contract
+  h4 <- Emulator.activateContractWallet (knownWallet 4) OffChain.contract
+
+  -- Limit order: Sell 10xAssetA @ 3
+  Emulator.callEndpoint @"add-liquidity" h1 $ AddLiquidityArgs 
+   { alAssetA     = tokenAssetClassA
+   , alAssetB     = tokenAssetClassB 
+   , alAmount     = 5 
+   , alSide       = Buy
+   , alTradePrice = 4
+   , alTraderAddr = mockWalletAddress (knownWallet 1)
+   , alOrderBook  = mkEmptyOrderBook 
+   }
+
+  void $ waitNSlots 2
+  ob1 <- Emulator.observableState h1
+  Extras.logInfo @String $ "OBSERVABLE STATE 01:\n" ++ show ob1
+  void $ waitNSlots 2
+
+  -- Limit Order: Sell 5xAssetA @ 4
+  Emulator.callEndpoint @"add-liquidity" h2 $ AddLiquidityArgs 
+    { alAssetA     = tokenAssetClassA
+    , alAssetB     = tokenAssetClassB 
+    , alAmount     = 5 
+    , alSide       = Buy
+    , alTradePrice = 3
+    , alTraderAddr = mockWalletAddress (knownWallet 2)
+    , alOrderBook  = head ob1 
+    }
+  void $ waitNSlots 2
+  ob2 <- Emulator.observableState h2 
+  Extras.logInfo @String $ "OBSERVABLE STATE 02:\n" ++ show ob2
+  void $ waitNSlots 2
+
+  -- Limit Order: Sell 15xAssetA @ 4
+  Emulator.callEndpoint @"add-liquidity" h3 $ AddLiquidityArgs 
+    { alAssetA     = tokenAssetClassA
+    , alAssetB     = tokenAssetClassB 
+    , alAmount     = 3 
+    , alSide       = Buy
+    , alTradePrice = 3
+    , alTraderAddr = mockWalletAddress (knownWallet 3)
+    , alOrderBook  = last ob2 
+    }
+  void $ waitNSlots 2
+  ob3 <- Emulator.observableState h3
+  Extras.logInfo @String $ "OBSERVABLE STATE 03:\n" ++ show (last ob3)
+  void $ waitNSlots 2
+
+  -- Market Order: Buy 15XAssetA
+  Emulator.callEndpoint @"trade-assets" h4 $ TradeAssetsArgs 
+    { taAssetA    = tokenAssetClassA 
+    , taAssetB    = tokenAssetClassB 
+    , taAmount    = 10   -- Must match seller amount(s) EXACTLY
+    , taSide      = Sell
+    , taOrderBook = last ob3 
+    }
+
+  void $ waitNSlots 2
+  ob4 <- Emulator.observableState h4 
+  void $ waitNSlots 2
+  Extras.logInfo @String $ "UPDATED ORDER BOOK:\n" ++ show (last ob4)
+
+predicate9 :: PCT.TracePredicate
+predicate9 = 
+       PCT.walletFundsChange w1 
+       (            V.assetClassValue tokenAssetClassA 5
+       <> N.negate (V.assetClassValue tokenAssetClassB 20)
+       )
+  .&&. PCT.walletFundsChange w2 
+       (            V.assetClassValue tokenAssetClassA 5
+       <> N.negate (V.assetClassValue tokenAssetClassB 15)
+       )
+  .&&. PCT.walletFundsChange w3
+       (  N.negate (V.assetClassValue tokenAssetClassB 9)
+       )
+  .&&. PCT.walletFundsChange w4
+       (  N.negate (V.assetClassValue tokenAssetClassA 10)
+       <>           V.assetClassValue tokenAssetClassB 35
+       )
+
+-- ---------------------------------------------------------------------- 
 -- Test
 -- ---------------------------------------------------------------------- 
 
@@ -457,6 +635,12 @@ test6 = Emulator.runEmulatorTraceIO' def emCfg trace6
 test7 :: IO ()
 test7 = Emulator.runEmulatorTraceIO' def emCfg trace7
 
+test8 :: IO ()
+test8 = Emulator.runEmulatorTraceIO' def emCfg trace8
+
+test9 :: IO ()
+test9 = Emulator.runEmulatorTraceIO' def emCfg trace9
+
 -- ---------------------------------------------------------------------- 
 -- Tests
 -- ---------------------------------------------------------------------- 
@@ -473,6 +657,11 @@ tests = testGroup "Trading Wallet Tests"
   , PCT.checkPredicateOptions testOptions "Trade Assets:     Consumes 2 Script UTxO" predicate5 trace5
   , PCT.checkPredicateOptions testOptions "Remove Liquidity: Cancel Buy Order"       predicate6 trace6
   , PCT.checkPredicateOptions testOptions "Remove Liquidity: Cancel Sell Order"      predicate7 trace7
+
+  , PCT.checkPredicateOptions testOptions "Trade Assets: Buy market order (consume 2 price levels)" 
+                              predicate8 trace8
+  , PCT.checkPredicateOptions testOptions "Trade Assets: Sell market order (consume 2 price levels)" 
+                              predicate9 trace9
   ]
 
 runTests :: IO ()

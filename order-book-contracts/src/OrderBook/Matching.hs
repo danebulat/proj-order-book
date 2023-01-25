@@ -73,24 +73,24 @@ takeOrdersForBuy k targetAmt ob (accV, accOs) =
           in
           -- check target met when consuming this order
           if curAmtPlusOrderAmt >= targetAmt then  
-              -- leftover means a partially filled limit order
-              let leftoverAmt = curAmtPlusOrderAmt - targetAmt in
-                if leftoverAmt > 0 then
-                    -- keep order and set its amount to leftover amount of asset
-                    let 
-                      orderAmtToTake = orderAssetAmt - leftoverAmt 
-                      orderToInsert  = o{ oAmount = orderAssetAmt - orderAmtToTake } 
-                      orderToTake    = o{ oAmount = orderAmtToTake }
-                      m' = Map.adjust (\(_:os) -> orderToInsert : os) k (obLimitOrders ob')
-                    in (v'+orderAmtToTake, os'++[orderToTake], (ob'{ obLimitOrders = m' }))
-                  else 
-                    -- no leftover, remove entire order from order book
-                    let m' = Map.adjust (drop 1) k (obLimitOrders ob')
-                    in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })
-            -- target not yet met, take order
-            else 
-              let m' = Map.adjust (drop 1) k (obLimitOrders ob')
-              in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })) 
+             -- leftover means a partially filled limit order
+             let leftoverAmt = curAmtPlusOrderAmt - targetAmt in
+               if leftoverAmt > 0 then
+                 -- keep order and set its amount to leftover amount of asset
+                 let 
+                   orderAmtToTake = orderAssetAmt - leftoverAmt 
+                   orderToInsert  = o{ oAmount = orderAssetAmt - orderAmtToTake } 
+                   orderToTake    = o{ oAmount = orderAmtToTake }
+                   m' = Map.adjust (\(_:os) -> orderToInsert : os) k (obLimitOrders ob')
+                 in (v'+orderAmtToTake, os'++[orderToTake], (ob'{ obLimitOrders = m' }))
+              else 
+                -- no leftover, remove entire order from order book
+                let m' = Map.adjust (drop 1) k (obLimitOrders ob')
+                in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })
+          -- target not yet met, take order
+          else 
+            let m' = Map.adjust (\(_:ys) -> ys) k (obLimitOrders ob')
+            in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })) 
         (accV, accOs, ob) ordersAtKey
   in 
     if accV' >= targetAmt 
@@ -123,24 +123,24 @@ takeOrdersForSell k targetAmt ob (accAmt, accOs) =
           in
           -- check target met when consuming this order
           if curAmtPlusOrderAmt >= targetAmt then 
-              -- leftover means a partially filled limit order
-              let leftoverAmt = curAmtPlusOrderAmt - targetAmt in 
-                if leftoverAmt > 0 then
-                    -- keep order and set its amount to leftover value of asset
-                    let 
-                      orderAmtToTake = orderAssetAmt - leftoverAmt
-                      orderToInsert  = o{ oAmount = orderAssetAmt - orderAmtToTake } 
-                      orderToTake    = o{ oAmount = orderAmtToTake }
-                      m' = Map.adjust (\(_:os) -> orderToInsert : os) k (obLimitOrders ob')
-                    in (v'+orderAmtToTake, os'++[orderToTake], (ob'{ obLimitOrders = m' }))
-                  else 
-                    -- no leftover, remove entire limit order from order book
-                    let m' = Map.adjust (drop 1) k (obLimitOrders ob')
-                    in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })
+            -- leftover means a partially filled limit order
+            let leftoverAmt = curAmtPlusOrderAmt - targetAmt in 
+              if leftoverAmt > 0 then
+                  -- keep order and set its amount to leftover value of asset
+                  let 
+                    orderAmtToTake = orderAssetAmt - leftoverAmt
+                    orderToInsert  = o{ oAmount = orderAssetAmt - orderAmtToTake } 
+                    orderToTake    = o{ oAmount = orderAmtToTake }
+                    m' = Map.adjust (\(_:os) -> orderToInsert : os) k (obLimitOrders ob')
+                  in (v'+orderAmtToTake, os'++[orderToTake], (ob'{ obLimitOrders = m' }))
+                else 
+                  -- no leftover, remove entire limit order from order book
+                  let m' = Map.adjust (drop 1) k (obLimitOrders ob')
+                  in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })
             -- target not yet met, take order
-            else 
-              let m' = Map.adjust (drop 1) k (obLimitOrders ob')
-              in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })) 
+          else 
+            let m' = Map.adjust (drop 1) k (obLimitOrders ob')
+            in (curAmtPlusOrderAmt, osAppended, ob'{ obLimitOrders = m' })) 
         (accAmt, accOs, ob) ordersAtKey
   in 
     if accAmt' >= targetAmt

@@ -71,7 +71,7 @@ are:
   is retreieved off-chain, such as NFT asset classes for identifying which outputs to consume
   for executing the market order successfully.
 
-## NFT usage
+## NFT Usage
 
 Each script output will store an NFT which is used to uniquely identify wallets (traders) 
 interacting with the application.

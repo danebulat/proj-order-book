@@ -198,7 +198,7 @@ addLimitOrder o ob
   | not (isValidLimitOrder o ob) = ob
   | otherwise = 
       let k = otlMaxPrice (oType o)
-          m = Map.insertWith (++) k [o] (obLimitOrders ob) 
+          m = Map.insertWith (flip (++)) k [o] (obLimitOrders ob) 
       in updateBidAsk (ob { obLimitOrders = m }) o
 
 -- Call after adding a new limit order
