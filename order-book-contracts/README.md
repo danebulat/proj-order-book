@@ -1,7 +1,109 @@
 # Order Book Contracts
 
-This README will describe each test function in test suite. Refer to the parent 
-README for an overview of the project and other information.
+This README will describe this package's source files in addition to each test function in the 
+test suite. Refer to the parent README for an overview of the project and other information.
+
+## Source Files
+
+- `src/Emulator.hs`<br>
+  Scenarios run with the `EmulatorTrace` monad to test application behavior. The same test
+  functions are also defined in `test/Spec/Trace.hs` but are added here for convenience.
+
+- `src/FreePolicy.hs`<br>
+  A policy script which always validates successfully. Used to mint arbitrary native tokens 
+  in the test suite and emulator trace scenarios.
+
+- `src/OffChain.hs`<br>
+  The off-chain component of the Plutus application. This module implements endpoints which 
+  can be called by wallets interacting with the application. More specifically, the 
+  `add-liquidity`, `remove-liquidity` and `trade-assets` endpoints are implemented using 
+  the `Contract` monad.
+
+- `src/OnChain.hs`<br>
+  The validator script that is called when limit order UTXOs are consumed in a transaction. 
+
+- `src/TradeNft.hs`<br>
+  The policy script that is run when producing limit order UTXOs. It checks that a transaction 
+  deposits correct assets to the script address governed by `src/OnChain.hs`. This policy 
+  script also checks that an NFT is minted and stored in the script output being produced by 
+  the transaction. This NFT is used to track a wallet's limit order(s) off-chain, and also 
+  verifies that the UTXO it's stored in is valid.
+
+- `src/OrderBook/Matching.hs`<br>
+  `src/OrderBook/Model.hs`<br>
+  `src/OrderBook/Utils.hs`<br>
+  The order book structure and API as defined in the `mock-order-book` package. Some small 
+  changes to the mock order book codebase are made to allow the API to be used with a Plutus 
+  application. Refer to `mock-order-book/README.md` for more information on these modules.
+
+## Running Test Suite and Emulator Traces
+
+### Running test suite with `cabal run`
+
+Clone the `plutus-apps` repository and checkout tag `v1.0.0`. The same tag is referenced in this 
+project's `cabal.project` file.
+
+```
+git clone https://github.com/input-output-hk/plutus-apps
+cd plutus-apps
+git checkout v1.0.0 
+```
+
+Enter a `nix-shell` environment. Make sure to follow the setup instructions provided in
+`plutus-apps` to correctly set up Nix and the IOHK hydra binaries.
+
+```
+nix-shell
+```
+
+Within `nix-shell` clone this repository somewhere on your filesystem and build the project.
+
+```
+# Step outside plutus-apps directory
+cd ..
+
+# Clone this repository and enter the order book contracts package
+git clone https://github.com/danebulat/proj-order-book 
+cd proj-order-book/order-book-contracts
+
+# Build the library and test suite 
+cabal build 
+```
+
+Now we can run the test suite directly with `cabal`:
+
+```
+cabal run test:order-book-tests
+```
+
+### Running test suite and emulator traces with GHCi
+
+After building the project, its test suite can be run within GHCi by using the 
+following commands:
+
+```
+cabal repl test:order-book-tests
+
+> :l test/Spec/Trace.hs
+
+# Run tests in IO monad 
+> runTests 
+```
+
+The `test/Spec/Trace.hs` module also includes individual functions for running emulator 
+traces which are called in the test suite. Seven functions are defined and named `testN` 
+where `N` can be from `1` to `7`.
+
+Use the following commands to run individual emulator trace functions:
+
+```
+cabal repl test:order-book-tests 
+
+> :l test/Spec/Trace.hs 
+> test1
+  ... 
+> test7
+```
 
 ## Test Suite Functions
 
@@ -11,6 +113,8 @@ a particular scenario. Scenarios are implemented with the `EmulatorTrace` monad,
 can also be run via the `runEmulatorTraceIO'` function. Separate functions to run 
 each emulator trace are provided in the test suite module, and will be discussed in 
 this document.
+
+### Tests Source Code
 
 As mentioned above, the test scenarios discussed below are all defined in the 
 `test/Spec/Trace.hs` module.

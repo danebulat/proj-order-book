@@ -4,9 +4,9 @@ In addition to the high-level overview of the project presented in this document
 also consult:
 
 - `order-book-contracts/README.md`<br>
-  Includes instructions on how to run the test suite and documentation that 
-  describes each test scenario. Go through this document to understand how 
-  the application works in more detail.
+  Provides descriptions of source files and includes instructions on how to run the test 
+  suite. Documentation is provided that describes each scenario in the test suite. Go 
+  through this document to understand how the application works in more detail.
 
 - `mock-order-book/README.md`<br>
   Provides a justification for the mock order book API and instructions for 
