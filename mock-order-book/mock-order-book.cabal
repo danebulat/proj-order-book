@@ -38,6 +38,7 @@ library
     exposed-modules: 
         OrderBook.Model
       , OrderBook.Matching
+      , OrderBook.Utils
     other-modules:
     ghc-options:
     hs-source-dirs: src 

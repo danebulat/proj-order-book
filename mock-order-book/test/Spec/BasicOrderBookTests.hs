@@ -12,6 +12,7 @@ import Data.Maybe (isNothing)
 
 import OrderBook.Model
 import OrderBook.Matching
+import OrderBook.Utils
 
 -- ---------------------------------------------------------------------- 
 -- Test Tree

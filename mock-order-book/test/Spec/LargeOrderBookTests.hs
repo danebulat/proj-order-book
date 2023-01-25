@@ -9,6 +9,7 @@ import Test.Tasty.HUnit
 
 import OrderBook.Model
 import OrderBook.Matching
+import OrderBook.Utils
 
 tests :: TestTree
 tests = testGroup "Large Order Book Tests"

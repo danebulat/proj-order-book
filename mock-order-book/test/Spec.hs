@@ -9,9 +9,6 @@ import Test.Tasty.HUnit
 import System.Exit (ExitCode(ExitSuccess))
 import System.Environment
 
-import OrderBook.Model
-import OrderBook.Matching
-
 import Spec.BasicOrderBookTests qualified as BasicTests
 import Spec.LargeOrderBookTests qualified as LargeTests
 
