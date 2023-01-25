@@ -89,7 +89,7 @@ tradeScriptAddress = OnChain.scriptParamAddress $ Param tokenAssetClassA tokenAs
 -- Trace 1
 -- ---------------------------------------------------------------------- 
 
--- Deposit 20xAssetB to BUY 10xAssetA
+-- Limit order: Deposit 20xAssetB @ trade price 2
 trace1 :: Emulator.EmulatorTrace ()
 trace1 = do 
   h1 <- Emulator.activateContractWallet (knownWallet 1) OffChain.contract

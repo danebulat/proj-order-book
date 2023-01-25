@@ -1,5 +1,17 @@
 # Order book project (Cardano Developer Professional)
 
+In addition to the high-level overview of the project presented in this document, 
+also consult:
+
+- `order-book-contracts/README.md`<br>
+  Includes instructions on how to run the test suite and documentation that 
+  describes each test scenario. Go through this document to understand how 
+  the application works in more detail.
+
+- `mock-order-book/README.md`<br>
+  Provides a justification for the mock order book API and instructions for 
+  running its test suite.
+
 ## Overview
 
 This repository is my submission for the final project in the Cardano Developer Professional 
@@ -132,75 +144,6 @@ The result of this trade will see Asset B sent to the wallets who produced the s
 being consumed in this transaction. The wallet executing the market order will receive Asset A in 
 return. The smart contracts will guarentee that Asset A is swapped at the correct limit price 
 (exchange rate).
-
-## Running Test Suite and Emulator Traces
-
-### Running test suite with `cabal run`
-
-Clone the `plutus-apps` repository and checkout tag `v1.0.0`. The same tag is referenced in this 
-project's `cabal.project` file.
-
-```
-git clone https://github.com/input-output-hk/plutus-apps
-cd plutus-apps
-git checkout v1.0.0 
-```
-
-Enter a `nix-shell` environment. Make sure to follow the setup instructions provided in
-`plutus-apps` to correctly set up Nix and the IOHK hydra binaries.
-
-```
-nix-shell
-```
-
-Within `nix-shell` clone this repository somewhere on your filesystem and build the project.
-
-```
-# Step outside plutus-apps directory
-cd ..
-
-# Clone this repository and enter the order book contracts package
-git clone https://github.com/danebulat/proj-order-book 
-cd proj-order-book/order-book-contracts
-
-# Build the library and test suite 
-cabal build 
-```
-
-Now we can run the test suite directly with `cabal`:
-
-```
-cabal run test:order-book-tests
-```
-
-### Running test suite and emulator traces with GHCi
-
-After building the project, its test suite can be run within GHCi by using the 
-following commands:
-
-```
-cabal repl test:order-book-tests
-
-> :l test/Spec/Trace.hs
-
-# Run tests in IO monad 
-> runTests 
-```
-
-The `test/Spec/Trace.hs` module also includes individual functions for running emulator 
-traces which are called in the test suite. Seven functions are defined and named `testN` 
-where `N` can be from `1` to `7`.
-
-Use the following commands to run individual emulator trace functions:
-
-```
-cabal repl test:order-book-tests 
-
-> :l test/Spec/Trace.hs 
-> test1
-  ... 
-> test7
-```
 
 ## Limitations
 
