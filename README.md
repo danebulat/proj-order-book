@@ -97,6 +97,47 @@ at the current bid/ask price. Limit orders retrieved off-chain store an NFT whic
 The parameterised NFT policy script also checks whether the correct assets are being 
 deposited when an output is produced at the script address.
 
+## Order Book Usage
+
+Modules developed in the `mock-order-book` package are used in the `order-book-contracts`
+Plutus application. Some small changes are made to the `OrderBook` structure and its API to 
+make it compatible with the on- and off-chain code. 
+
+An order book instance is used for each testing scenario to keep track of submitted limit 
+orders in the application's off-chain compononent, as well as the current bid and ask prices 
+for the currency pair being traded. 
+
+In this application, an empty `OrderBook` instance is created at the start of each 
+testing scenario in the `EmulatorTrace` monad. Is is then passed into, and back out 
+of, endpoints run in the `Contract` monad. The provided order book instance is updated 
+in the respective endpoint functions when:
+
+- Limit orders are submitted to the blockchain.
+- Limit orders are cancelled.
+- Market orders are executed.
+
+In each of these actions, orders need to be either added or removed from the order 
+book, and the current bid and ask prices also need updating. An order book instance 
+is updated after a transaction has been successfully submitted to the emulated 
+blockchain.
+
+Endpoints that run inside the `Contract` monad are parameterised to keep track of an 
+`[OrderBook]` instance as the writer type. This allows the `Contract` monad's `tell` 
+function to add an order book instance to the contract's observable state. The 
+`observableState` function is called within the `EmulatorTrace` monad to get an updated 
+`OrderBook` instance out of a function running in the contract monad. The retrieved order 
+book instance can then be passed to subsequent calls to endpoint.
+
+This "threading" of an `OrderBook` instance ensures that each endpoint receives the 
+correct order book instance in each test scenario.
+
+- Refer to directory `order-book-contracts/src/OrderBook` to browse the `OrderBook` structure 
+  and its API.
+- Refer to `order-book-contracts/src/OffChain.hs` to observe how an `OrderBook` is used 
+  in endpoints.
+- Refer to `order-book-contracts/test/Spec/Trace.hs` to observe how an `OrderBook` instance 
+  is provided to, and retrieved from endpoints.
+
 ## eUTxO Diagrams
 
 ### Adding Liquidity
