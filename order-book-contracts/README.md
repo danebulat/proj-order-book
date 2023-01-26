@@ -121,7 +121,9 @@ As mentioned above, the test scenarios discussed below are all defined in the
 
 ### Trace 1 
 
-A wallet calls the `add-liquidity` endpoint to submit a **BUY** limit order. The limit 
+**Scenario:** Submit a `Buy` limit order producing 1 script output.
+
+A wallet calls the `add-liquidity` endpoint to submit a **Buy** limit order. The limit 
 order specifies that 10xAssetA will be traded for 20xAssetB. We know that 20xAssetB
 are required to trade 10xAssetA because the limit price on the limit order is **2**
 (Price 2 * 10xAssetA = 20xAssetB). As a result, this wallet must deposit - produce a 
@@ -135,6 +137,8 @@ for this emulator trace asserts that the wallet's funds change by minus 20xAsset
 - `test1`      - Call to run the emulator trace in `IO` monad
 
 ### Trace 2
+
+**Scenario:** Submit a `Sell` limit order producing 1 script output.
 
 A wallet calls the `add-liquidity` endpoint to submit a **SELL** limit order. The limit 
 order specifies that 10xAssetA will be traded for 20xAssetB. We know that 20xAssetB
@@ -150,6 +154,8 @@ for this emulator trace asserts that the wallet's funds change by minus 10xAsset
 - `test2`      - Call to run the emulator trace in `IO` monad
 
 ### Trace 3 
+
+**Scenario:** Submit a `Buy` and `Sell` limit order producing 2 script outputs.
 
 This scenario involves submitting two limit orders on either side of the market - a buy and 
 a sell limit order. The resulting order book is rendered after calling this scenario's 
@@ -170,7 +176,9 @@ wallet 2 withdraws 10xAssetA to submit the sell order.
 
 ### Trace 4
 
-This scenario tests the `trade-assets` endpoint and executes a **buy** market order. In order
+**Scenario:** Execute a `Buy` market order consuming 1 script output.
+
+This scenario tests the `trade-assets` endpoint and executes a **Buy** market order. In order
 to execute a market order, limit orders must already by submitted to the blockchain. With this 
 in mind, wallet 1 and wallet 2 submit limit orders that are identical to the previous test.
 
@@ -186,6 +194,8 @@ the respective wallets involved.
 - `test4`      - Call to run the emulator trace in `IO` monad
 
 ### Trace 5
+
+**Scenario:** Execute a `Buy` market order consuming 2 script outputs.
 
 This scenario builds upon trace 4 and executes a market order that has to consume two UTXOs to 
 completely fill it.
@@ -204,6 +214,9 @@ the respective wallets involved.
 
 ### Trace 6 
 
+**Scenario:** Execute a `Buy` limit order and cancel it, producing and consuming 1 script 
+output. 
+
 This scenario tests the `remove-liquidity` endpoint, which allows a trader to cancel their 
 limit order, and get back deposited liquidity. 
 
@@ -221,6 +234,9 @@ This scenario's trace predicate assets this behavior.
 
 ### Trace 7 
 
+**Scenario:** Execute a `Sell` limit order and cancel it, producing and consuming 1 script 
+output. 
+
 This scenario also tests the `remove-liquidity` endpoint, this time with a sell limit order.
 
 Wallet 1 firstly submits a **sell** limit order by calling the `add-liquidity` endpoint. In 
@@ -236,6 +252,9 @@ This scenario's trace predicate assets this behavior.
 - `test7`      - Call to run the emulator trace in `IO` monad
 
 ### Trace 8
+
+**Scenario:** Execute a `Buy` market order consuming 2 script outputs with different
+limit prices.
 
 This scenario involves making a trade that requires consuming two UTXOs (limit orders) at 
 different price levels. In this case, multiple **sell** limit orders are submitted to 
@@ -255,6 +274,9 @@ address to make this trade.
 
 ### Trace 9
 
+**Scenario:** Execute a `Sell` market order consuming 2 script outputs with different
+limit prices.
+
 This scenario also involves making a trade that requires consuming two UTXOs (limit orders)
 at different price levels. In this case, multiple **buy** limit orders are submitted to 
 the blockchain, each having a different price the respective trader is willing to 
@@ -270,5 +292,4 @@ address to make this trade.
 - `trace9`     - Emulator trace function
 - `predicate9` - Trace predicate function
 - `test9`      - Call to run the emulator trace in `IO` monad
-
 

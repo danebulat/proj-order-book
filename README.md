@@ -1,14 +1,14 @@
-# Order book project (Cardano Developer Professional)
+# Order Book Project (Cardano Developer Professional)
 
 In addition to the high-level overview of the project presented in this document, 
 also consult:
 
-- `order-book-contracts/README.md`<br>
+- [`order-book-contracts/README.md`](/order-book-contracts/README.md)<br>
   Provides descriptions of source files and includes instructions on how to run the test 
   suite. Documentation is provided that describes each scenario in the test suite. Go 
   through this document to understand how the application works in more detail.
 
-- `mock-order-book/README.md`<br>
+- [`mock-order-book/README.md`](/mock-order-book/README.md)<br>
   Provides a justification for the mock order book API and instructions for 
   running its test suite.
 
