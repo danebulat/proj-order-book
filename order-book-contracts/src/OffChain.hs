@@ -10,7 +10,12 @@
 
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
-module OffChain where
+module OffChain
+  ( contract 
+  , AddLiquidityArgs(..)
+  , RemoveLiquidityArgs(..)
+  , TradeAssetsArgs(..)
+  ) where
 
 import Control.Monad              (when)
 import Control.Lens               ((^.))
@@ -31,7 +36,6 @@ import Prelude                    qualified as P
 import Prelude                    ((<>))
 
 import Ledger                     qualified as L
-import Ledger.Ada                 qualified as Ada
 import Ledger.Constraints         qualified as Constraints 
 import Ledger.Tx                  qualified as LTX
 import Plutus.Contract            (type (.\/))
@@ -369,9 +373,6 @@ contract = do
 -- ---------------------------------------------------------------------- 
 -- Helper functions
 -- ---------------------------------------------------------------------- 
-
-minLovelace :: V.Value
-minLovelace = Ada.lovelaceValueOf (Ada.getLovelace  L.minAdaTxOut)
 
 calculateTokenNameHash :: LV2.TxOutRef -> BuiltinByteString
 calculateTokenNameHash oref = sha2_256 (consByteString idx txid)

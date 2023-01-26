@@ -7,7 +7,19 @@
 {-# OPTIONS_GHC -fno-warn-unused-imports   #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
-module Spec.Trace where
+module Spec.Trace
+  ( runTests 
+  , tests
+  , test1 
+  , test2
+  , test3
+  , test4
+  , test5
+  , test6
+  , test7
+  , test8
+  , test9
+  ) where
 
 import Plutus.Trace.Emulator      qualified as Emulator
 import Plutus.Contract.Test       qualified as PCT
