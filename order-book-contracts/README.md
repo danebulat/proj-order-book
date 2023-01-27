@@ -36,6 +36,15 @@ test suite. Refer to the parent README for an overview of the project and other 
   changes to the mock order book codebase are made to allow the API to be used with a Plutus 
   application. Refer to `mock-order-book/README.md` for more information on these modules.
 
+- `test/Spec.hs`<br>
+  Entry point to the test suite. Call `main` to run the entire test suite.
+
+- `test/Spec/Trace.hs`<br>
+  Test suite emulator trace and trace predicate implementations. Contains functions to 
+  both run the entire test suite and individual emulator traces. The `runTests` function 
+  will run all trace predicates in the module. Functions named `testN` (`test1` - `test9`)
+  will run individual emulator trace scenarios - which are used by the trace predicates. 
+
 ## Running Test Suite and Emulator Traces
 
 ### Running test suite with `cabal run`

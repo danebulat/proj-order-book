@@ -24,8 +24,8 @@ action is known as "adding liquidity" in the application.
 If a currency pair has enough liquidity on the bid or ask side of the market, a 
 user is also able to submit market orders to trade a particular currency pair. As an 
 example, for the arbitrary pair ADA/AUSD, a user is able to trade (swap) ADA for AUSD by 
-selling ADA at the current ask price in the order book. On the other hand, a user is also 
-able to buy ADA, which will involve submitting a market order to sell ADA for AUSD at the 
+selling ADA at the current bid price in the order book. On the other hand, a user is also 
+able to buy ADA, which will involve submitting a market order to swap AUSD for ADA at the 
 current ask price for the currency pair.
 
 See the limitations section to discover what is not possible with this system out-of-the-box.
@@ -54,8 +54,8 @@ Dapp participants are summarised here:
 - **Liquidity providers** (limit orders)<br>
   Users who want to buy or sell an asset for a particular price will produce outputs 
   at the script address in the form of limit orders. These outputs will store one of 
-  the assets in the currency pair being traded. The script output datum stores 
-  information, such as the limit price to trade at, in order to satisfy limit orders.
+  the assets in the currency pair being traded. A script output's datum stores 
+  information relavant to a limit order such as the limit price to trade at.
 
 - **Traders** (market orders)<br>
   Users who want to trade an asset pair, or swap one asset for another, will submit 
@@ -107,19 +107,18 @@ An order book instance is used for each testing scenario to keep track of submit
 orders in the application's off-chain compononent, as well as the current bid and ask prices 
 for the currency pair being traded. 
 
-In this application, an empty `OrderBook` instance is created at the start of each 
-testing scenario in the `EmulatorTrace` monad. Is is then passed into, and back out 
-of, endpoints run in the `Contract` monad. The provided order book instance is updated 
-in the respective endpoint functions when:
+In this application, an empty `OrderBook` instance is created at the start of each testing 
+scenario in the `EmulatorTrace` monad. Is is then passed into, and back out of, endpoints 
+that are run in the `Contract` monad. The provided order book instance is updated in the 
+respective endpoint functions when:
 
 - Limit orders are submitted to the blockchain.
 - Limit orders are cancelled.
 - Market orders are executed.
 
-In each of these actions, orders need to be either added or removed from the order 
-book, and the current bid and ask prices also need updating. An order book instance 
-is updated after a transaction has been successfully submitted to the emulated 
-blockchain.
+In each of these actions, orders need to be either added or removed from the order book, and 
+the current bid and ask prices also need updating. An order book instance is updated after a 
+transaction has been successfully submitted to the emulated blockchain.
 
 Endpoints that run inside the `Contract` monad are parameterised to keep track of an 
 `[OrderBook]` instance as the writer type. This allows the `Contract` monad's `tell` 
