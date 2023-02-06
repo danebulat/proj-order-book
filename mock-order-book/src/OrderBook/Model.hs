@@ -1,5 +1,7 @@
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE NumericUnderscores  #-}
+{-# LANGUAGE TypeApplications    #-}
 
 module OrderBook.Model where
 
@@ -8,6 +10,7 @@ import Data.Map     (Map)
 import Data.Map     qualified as Map
 import Data.Maybe   (isJust, fromJust)
 import Data.Monoid  (Sum(..))
+import Fmt
 import GHC.List     (foldl')
 
 -- ---------------------------------------------------------------------- 
@@ -67,19 +70,19 @@ instance Default OrderBook where
 
 instance Show OrderBook where 
   show ob = 
-           "Total limit orders:   " <> show (getTotalLimitOrders ob)
-      <> "\nIncrement:            " <> show (obIncrement ob)
-      <> "\nBid price:            " <> show (obCurBid ob) 
-      <> "\nAsk price:            " <> show (obCurAsk ob)
-      <> "\nOrders:\n" <> levels
+    fmt $ "Total Limit Orders: "+|getTotalLimitOrders ob|+""
+       +| padRightF @String pad ' ' "\n    Increment:" |++| obIncrement ob |+"" 
+       +| padRightF @String pad ' ' "\n    Bid price:" |++| obCurBid ob    |+""
+       +| padRightF @String pad ' ' "\n    Ask price:" |++| obCurAsk ob    |+ 
+       "\nOrders:\n"+| levels |+""
     where 
+      pad = 21 :: Int
       levels = foldr (\(p', os) acc -> acc <> showPriceLevel p' os) 
                  mempty (Map.toList (obLimitOrders ob))
 
 -- Render orders at a price level
 showPriceLevel :: Value -> [Order] -> String 
-showPriceLevel price os = "    " <> 
-  show price <> ": " <> show (length os) <> " orders\n"
+showPriceLevel price os = "    "+|price|+": "+|length os|+" orders\n" 
 
 showOrdersAtLevel :: Value -> OrderBook -> String
 showOrdersAtLevel level ob = case mos of 
@@ -89,9 +92,7 @@ showOrdersAtLevel level ob = case mos of
     mos = Map.lookup level (obLimitOrders ob)
 
 renderOrder :: Order -> String
-renderOrder o = oPkh o <> "  |  " <> show (oAmount o)
-                       <> "  |  " <> show (oSide o)
-                       <> "\n"
+renderOrder o = ""+||oPkh o||+"  |  "+|oAmount o|+"  |  "+||oSide o||+"\n"
 
 renderOrders :: [Order] -> String
 renderOrders = foldl' (\acc o -> acc <> renderOrder o) mempty 

@@ -79,6 +79,7 @@ library
       bytestring -any,
       containers -any,
       freer-extras -any,
+      fmt,
       openapi3,
       text -any,
       lens -any,

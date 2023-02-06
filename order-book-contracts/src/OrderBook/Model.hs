@@ -1,9 +1,12 @@
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE DeriveAnyClass                #-}
-{-# LANGUAGE DeriveGeneric                 #-}
-{-# LANGUAGE DerivingStrategies            #-}
-{-# LANGUAGE FlexibleContexts              #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveAnyClass      #-}
+{-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE DerivingStrategies  #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE InstanceSigs        #-} 
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE TypeApplications    #-}
 
 module OrderBook.Model where
 
@@ -13,6 +16,7 @@ import GHC.Generics                   (Generic)
 import Data.Default
 import Data.Map               (Map)
 import Data.Map               qualified as Map
+import Fmt
 import GHC.List               (foldl')
 
 import Ledger                 qualified as L
@@ -95,23 +99,23 @@ instance Default OrderBook where
 
 instance Show OrderBook where 
   show ob = 
-           "Total limit orders:   " <> show (getTotalLimitOrders ob)
-      <> "\nIncrement:            " <> show (obIncrement ob)
-      <> "\nBid price:            " <> show (obCurBid ob) 
-      <> "\nAsk price:            " <> show (obCurAsk ob)
-      <> "\nOrders:\n" <> levels
+    fmt $ "Total Limit Orders: "+|getTotalLimitOrders ob|+""
+       +| padRightF @String pad ' ' "\n    Increment:" |++| obIncrement ob |+"" 
+       +| padRightF @String pad ' ' "\n    Bid price:" |++| obCurBid ob    |+""
+       +| padRightF @String pad ' ' "\n    Ask price:" |++| obCurAsk ob    |+ 
+       "\nOrders:\n"+| levels |+""
     where 
+      pad = 21 :: Int
       levels = foldr (\(p', os) acc -> acc <> showPriceLevel p' os) 
                  mempty (Map.toList (obLimitOrders ob))
-
+      
 -- ----------------------------------------------------------------------   
 -- Show functions
 -- ----------------------------------------------------------------------   
 
 -- Render orders at a price level
 showPriceLevel :: Price -> [Order] -> String 
-showPriceLevel price os = "    " <> 
-  show price <> ": " <> show (length os) <> " orders\n"
+showPriceLevel price os = "    "+|price|+": "+|length os|+" orders\n" 
 
 showOrdersAtLevel :: Price -> OrderBook -> String
 showOrdersAtLevel level ob = case mos of 
@@ -121,10 +125,7 @@ showOrdersAtLevel level ob = case mos of
     mos = Map.lookup level (obLimitOrders ob)
 
 showOrder :: Order -> String
-showOrder o = show (oPkh o) 
-           <> "  |  " <> show (oAmount o)
-           <> "  |  " <> show (oSide o)
-           <> "\n"
+showOrder o = ""+||oPkh o||+"  |  "+|oAmount o|+"  |  "+||oSide o||+"\n"
 
 showOrders :: [Order] -> String
 showOrders = foldl' (\acc o -> acc <> showOrder o) mempty 
